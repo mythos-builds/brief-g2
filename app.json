@@ -1,0 +1,17 @@
+{
+  "package_id": "com.appfinishers.brief",
+  "edition": "202601",
+  "name": "Brief",
+  "version": "0.1.0",
+  "min_app_version": "2.2.10",
+  "min_sdk_version": "0.0.12",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Fetches the items that need you and sends the replies you confirm.",
+      "whitelist": ["https://brief.appfinishers.com"]
+    }
+  ],
+  "supported_languages": ["en"]
+}

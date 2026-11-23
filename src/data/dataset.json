@@ -1,0 +1,142 @@
+{
+ "now": "2026-11-24T12:41:00-05:00",
+ "personas": {
+  "marco": {
+   "name": "Marco Bellini",
+   "email": "marco.bellini@northline-automation.example.com",
+   "role": "shift supervisor (the user's boss)"
+  },
+  "priya": {
+   "name": "Priya Nair",
+   "email": "p.nair@riverside-foods.example.net",
+   "role": "plant manager, a client"
+  },
+  "jordan": {
+   "name": "Jordan Blake",
+   "email": "jordan@kestrel-supply.example.com",
+   "role": "parts supplier"
+  },
+  "lina": {
+   "name": "Lina Chen",
+   "email": "lina.chen@acme-packaging.example.com",
+   "role": "carton supplier"
+  },
+  "sam": {
+   "name": "Sam",
+   "telegram": "test DC persona",
+   "chat": "Crew group"
+  },
+  "nora": {
+   "name": "Nora",
+   "telegram": "test DC persona",
+   "chat": "direct"
+  }
+ },
+ "mail": [
+  {
+   "from": "marco",
+   "at": "11:02",
+   "needs_answer": true,
+   "subject": "Friday 6 am",
+   "body": "Hi, Kevin is off sick on Friday. Can you cover the 6 am start on line 1? Let me know before 3 so I can post the schedule. Thanks, Marco",
+   "summary6": "can you cover Friday 6 am?",
+   "draft": "Yes, I can cover Friday 6 am on line 1."
+  },
+  {
+   "from": "priya",
+   "at": "10:15",
+   "needs_answer": true,
+   "subject": "Line 2 stopped twice this morning",
+   "body": "Hello, line 2 tripped twice since 7 am, same alarm both times (servo overload on the infeed). Operators reset it but we lose 20 minutes each time. Could someone come by today? We're on site until 6. Priya",
+   "summary6": "line 2 tripped twice, visit today?",
+   "draft": "I can be there at 4:30 today. Please keep the alarm history on the HMI."
+  },
+  {
+   "from": "jordan",
+   "at": "09:40",
+   "needs_answer": false,
+   "subject": "Order S-5521 shipped",
+   "body": "Hi, your 2 servo drives and cables (order S-5521) shipped this morning, arriving Wednesday at the Riverside site. Tracking in the portal. Jordan",
+   "summary6": "servo drives shipped, arriving Wednesday"
+  },
+  {
+   "from": "lina",
+   "at": "08:55",
+   "needs_answer": false,
+   "subject": "Carton order #4471, new date",
+   "body": "Hi, the carton order #4471 is delayed again, the corrugator is down. New ship date Thursday. We can talk at 2 pm as planned. Lina",
+   "summary6": "carton order #4471 delayed to Thursday"
+  },
+  {
+   "from": "newsletter",
+   "at": "07:00",
+   "needs_answer": false,
+   "hidden": "newsletter",
+   "subject": "Automation Weekly #212"
+  },
+  {
+   "from": "notification",
+   "at": "06:30",
+   "needs_answer": false,
+   "hidden": "notification",
+   "subject": "Your parcel is out for delivery"
+  },
+  {
+   "from": "notification",
+   "at": "06:05",
+   "needs_answer": false,
+   "hidden": "notification",
+   "subject": "Invoice INV-2207 paid"
+  }
+ ],
+ "calendar": [
+  {
+   "start": "14:00",
+   "title": "Supplier call",
+   "with": "lina",
+   "brief": {
+    "why": "carton order #4471 late",
+    "last": "Nov 14 — she promised Friday",
+    "facts": [
+     "corrugator down since Monday",
+     "new ship date Thursday",
+     "line 3 has 2 days of cartons left"
+    ]
+   }
+  },
+  {
+   "start": "16:30",
+   "title": "Site visit, Riverside Foods line 2",
+   "with": "priya"
+  }
+ ],
+ "telegram": [
+  {
+   "from": "sam",
+   "chat": "Crew group",
+   "at": "11:40",
+   "mentions_user": true,
+   "needs_answer": true,
+   "text": "@you truck comes 30 min early tomorrow, ok if we open gate 3 at 6:30?",
+   "summary": "truck comes 30 min early, ok?",
+   "draft": "Yes, gate 3 is open at 6:30."
+  },
+  {
+   "from": "nora",
+   "chat": "direct",
+   "at": "10:58",
+   "needs_answer": false,
+   "text": "Spare prox sensor is back at the shop, on the bench by the door.",
+   "summary": "spare sensor back at the shop"
+  },
+  {
+   "from": "channel",
+   "chat": "Deals channel (muted)",
+   "at": "09:00",
+   "muted": true,
+   "needs_answer": false,
+   "text": "50% off safety gloves today"
+  }
+ ],
+ "expected_home_screen": "3 need you · 2 mail · 1 TG · 12:41  (next 14:00 Supplier call) — matches SCREENS.md A"
+}
