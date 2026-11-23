@@ -1,8 +1,9 @@
 // State → page description (pure data). Layout from SCREENS.md; every text is fitted with measured widths.
 import { pxTruncate } from '@evenrealities/pretext'
 import type { AppState, Dataset, Item, ListBox, PageSpec, StateName, TextBox } from './types.ts'
-import { actItems, altItems, CONFIRM_ITEMS, findItem } from './flow.ts'
-import { briefDue, companyOf, homeLabel, needLine, nextEvent, summaryLine } from './items.ts'
+import { actItems, altItems, CONFIRM_ITEMS, findItem, LIST_OF } from './flow.ts'
+import { briefDue, companyOf, homeLabel, needLine, nextEvent, shownTime, summaryLine } from './items.ts'
+import { DRAFT_PREFIX } from './replies.ts'
 import { LIST_ITEM_H, LIST_ITEM_PAD, MAX_LIST_ITEM_CHARS, MAX_TEXT_LINES, SCREEN_H, SCREEN_W, wrap } from './measure.ts'
 
 export const TEXT_PAD = 4
@@ -16,6 +17,8 @@ export const STATE_TEXT: Record<StateName, string> = {
   offline: 'No connection — retrying',
   working: 'Working…',
   error: "Couldn't load your items. Nothing was sent. Press to try again.",
+  later: 'Too many tries — wait a few minutes, then press to try again',
+  limit: "Today's demo limit is reached. Nothing was sent. Try again tomorrow.",
 }
 
 export interface PageContext {
@@ -46,7 +49,9 @@ function lines(content: string, w: number): number {
 }
 
 function fromLine(item: Item): string {
-  return item.source === 'telegram' ? `TG · ${item.name} (${item.chat}) · ${item.at}` : `From ${item.name} · ${item.at}`
+  const at = shownTime(item.at)
+  const tail = at ? ` · ${at}` : ''
+  return item.source === 'telegram' ? `TG · ${item.name} (${item.chat})${tail}` : `From ${item.name}${tail}`
 }
 
 function homePage(state: AppState, ctx: PageContext): PageSpec {
@@ -62,13 +67,14 @@ function homePage(state: AppState, ctx: PageContext): PageSpec {
   const labels = state.items.slice(0, 20).map((i) => fitLine(homeLabel(i), { kind: 'list', w: SCREEN_W, pad: 0 }))
   return {
     screen: 'A',
-    boxes: [text('hdr', 0, 0, SCREEN_W, 36, hdr), list('inbox', 44, 240, labels)],
+    boxes: [text('hdr', 0, 0, SCREEN_W, 36, hdr), list(LIST_OF.home, 44, 240, labels)],
   }
 }
 
 function mailPage(item: Item, draft: string): PageSpec {
   const from = fromLine(item)
-  const draftLine = `Draft: ${draft}`
+  // a refused draft (src/logic/replies.ts) is never shown: B then offers the alternatives or Skip, never Send
+  const draftLine = draft ? `${DRAFT_PREFIX}${draft}` : 'No draft to send — see Other answers'
   let summary = summaryLine(item)
   // ≤ 4 text lines: the summary gives way first (one line, cut where it fits), never the draft
   if (lines([from, summary, draftLine].join('\n'), SCREEN_W) > MAX_TEXT_LINES)
@@ -76,14 +82,14 @@ function mailPage(item: Item, draft: string): PageSpec {
   const content = [from, summary, draftLine].join('\n')
   return {
     screen: 'B',
-    boxes: [text('mail', 0, 0, SCREEN_W, 148, content), list('act', 160, 120, actItems(item))],
+    boxes: [text('mail', 0, 0, SCREEN_W, 148, content), list(LIST_OF.mail, 160, 120, actItems(item, draft))],
   }
 }
 
 function altsPage(item: Item): PageSpec {
   const hdr = fitLine(homeLabel(item), { kind: 'text', w: SCREEN_W, pad: TEXT_PAD })
   // the alternatives were validated (≤ 60 characters, one line) when the item was built: never cut here
-  return { screen: 'D2', boxes: [text('hdr', 0, 0, SCREEN_W, 36, hdr), list('alts', 44, 240, altItems(item))] }
+  return { screen: 'D2', boxes: [text('hdr', 0, 0, SCREEN_W, 36, hdr), list(LIST_OF.alts, 44, 240, altItems(item))] }
 }
 
 function confirmPage(item: Item, draft: string): PageSpec {
@@ -94,7 +100,7 @@ function confirmPage(item: Item, draft: string): PageSpec {
   const content = [...who, draft].join('\n')
   return {
     screen: 'C',
-    boxes: [text('who', 0, 0, SCREEN_W, 148, content), list('ok', 160, 80, [...CONFIRM_ITEMS])],
+    boxes: [text('who', 0, 0, SCREEN_W, 148, content), list(LIST_OF.confirm, 160, 80, [...CONFIRM_ITEMS])],
   }
 }
 

@@ -1,0 +1,9 @@
+/* The phone-side page (WebView). A file, not an inline <style>: the Worker's CSP allows no inline style or script. */
+:root { color-scheme: light dark; --fg: #111; --bg: #fff; --muted: #555; --line: #ccc; }
+@media (prefers-color-scheme: dark) { :root { --fg: #eee; --bg: #111; --muted: #aaa; --line: #444; } }
+body { margin: 0; padding: 16px; font: 16px/1.4 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+form { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
+label { display: block; font-weight: 600; margin-bottom: 8px; }
+input { font: inherit; font-size: 24px; letter-spacing: 0.2em; width: 8ch; padding: 6px 8px; }
+button { font: inherit; padding: 8px 16px; margin-left: 8px; }
+#pair-status { color: var(--muted); min-height: 1.4em; }

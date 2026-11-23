@@ -31,7 +31,7 @@ function allPages(): PageSpec[] {
       }
       const c = reduce(b, press(0)).state
       pages.push(pageFor(c, ctx))
-      pages.push(pageFor(reduce(c, press(1)).state, ctx))
+      pages.push(pageFor(reduce(c, { type: 'press', index: 1, list: 'ok', label: 'Send now' }).state, ctx))
     })
     pages.push(pageFor({ ...s0, items: [] }, ctx))
   }

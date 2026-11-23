@@ -64,7 +64,7 @@ export interface Item {
   alts: string[] // already validated (see validAlts)
 }
 
-export type StateName = 'signin' | 'offline' | 'working' | 'error'
+export type StateName = 'signin' | 'offline' | 'working' | 'error' | 'later' | 'limit'
 
 export type Screen =
   | { kind: 'home' }
@@ -81,16 +81,24 @@ export interface AppState {
   screen: Screen
 }
 
-/** What the glasses get from a gesture. `index` = the list's selected item (press on a list only). */
+/**
+ * What the glasses get from a gesture. On a list press: `index` = the selected row, `list` = the container the event
+ * names, `label` = the row's text. A press whose list or label does not match the screen now drawn is dropped
+ * (review finding 2), and `Send now` needs its label: a press with no label never sends.
+ */
 export type Input =
-  | { type: 'press'; index?: number }
+  | { type: 'press'; index?: number; list?: string; label?: string }
   | { type: 'up' }
   | { type: 'down' }
   | { type: 'double' }
   | { type: 'tick' } // the 2-second timer after `Sent ✓`
 
-/** `fake-send`: the reply is recorded in memory only (nothing is sent); main.ts then arms the 2 s timer. */
-export type Effect = 'none' | 'exit-dialog' | 'fake-send'
+/**
+ * `fake-send`: `Send now` was pressed; the reply is recorded in memory (static data: nothing leaves; backend mode:
+ * main.ts posts the choice and shows `Sent` only after a 200) · `skip`: Skip on B (backend: the skip route) ·
+ * `reload`: a press on an F state (backend: load the list again).
+ */
+export type Effect = 'none' | 'exit-dialog' | 'fake-send' | 'skip' | 'reload'
 
 // ---- page description, pure data; src/main.ts turns it into SDK containers ----
 

@@ -4,6 +4,28 @@ import type { Source } from './logic/types.ts'
 /** Default: mail only. Telegram joins the same list (tag « TG ») when it is on. */
 export const SOURCES: readonly Source[] = ['mail']
 
+// Build-time switches (Vite replaces `import.meta.env.*` at build; under `node --test` there is no env → defaults).
+const env: Record<string, string | boolean | undefined> = import.meta.env ?? {}
+
+export type DataSource = 'static' | 'backend'
+/** `static` (default: tests and `npm run shots` stay on the demo data) or `backend` (`VITE_DATA_SOURCE=backend`). */
+export const DATA_SOURCE: DataSource = dataSourceOf(env.VITE_DATA_SOURCE)
+/** API base: '' = same origin (the Worker serves /app/ and /api/). `VITE_API_BASE=http://127.0.0.1:8787` for local runs. */
+export const API_BASE: string = apiBaseOf(env.VITE_API_BASE)
+/** Off (default) = demo mode. On (`VITE_REQUIRE_PAIRING=1`): without a paired session the glasses show « Sign-in needed ». */
+export const REQUIRE_PAIRING: boolean = env.VITE_REQUIRE_PAIRING === '1' || env.VITE_REQUIRE_PAIRING === 'true'
+/** The URL switches below exist on the dev server only (review finding 14): the hosted build ignores the query. */
+export const URL_SWITCHES: boolean = env.DEV === true
+
+export function dataSourceOf(v: unknown): DataSource {
+  return v === 'backend' ? 'backend' : 'static'
+}
+
+export function apiBaseOf(v: unknown): string {
+  if (typeof v !== 'string' || v === '') return ''
+  return /^https?:\/\/[^/?#]+$/.test(v) ? v : ''
+}
+
 export interface Config {
   sources: Source[]
   clock?: string // demo clock "HH:MM"; default = the dataset's `now`

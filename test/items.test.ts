@@ -8,8 +8,8 @@ import { STATIC_ALTS } from '../src/data/static-alts.ts'
 
 const ds = loadDataset()
 
-test('the app copy of the dataset is byte-identical to ../demo/dataset.json', () => {
-  const original = readFileSync(new URL('../../demo/dataset.json', import.meta.url))
+test('the app copy of the dataset is byte-identical to demo/dataset.json (in the repo)', () => {
+  const original = readFileSync(new URL('../demo/dataset.json', import.meta.url))
   const copy = readFileSync(new URL('../src/data/dataset.json', import.meta.url))
   assert.ok(original.equals(copy))
 })

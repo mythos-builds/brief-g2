@@ -1,5 +1,6 @@
 // `npm run shots`: walks the whole path in the Even Hub simulator and writes one PNG per screen into docs/screens/.
-// Dev server on 127.0.0.1:5173 + the simulator through ../tools/sim.sh (automation API on 127.0.0.1:9898).
+// Dev server on 127.0.0.1:5173 + the simulator through tools/sim.sh (automation API on 127.0.0.1:9898).
+// Each PNG is flattened on black (plain RGB: the simulator's RGBA keeps the picture in the alpha channel).
 // Checks each PNG is 576×288, runs the measured line-width check on the page the app actually drew,
 // stops the simulator and the server, and exits 0 only if everything passed. Local only: no other network call.
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
@@ -7,10 +8,11 @@ import { mkdirSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { checkPage, SCREEN_H, SCREEN_W } from '../src/logic/measure.ts'
+import { flattenOnBlack, pngInfo } from './png.ts'
 import type { PageSpec } from '../src/logic/types.ts'
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), '..')
-const SIM = join(APP, '..', 'tools', 'sim.sh')
+const SIM = join(APP, 'tools', 'sim.sh')
 const OUT = join(APP, 'docs', 'screens')
 const DEV = 'http://127.0.0.1:5173'
 const API = 'http://127.0.0.1:9898'
@@ -22,6 +24,7 @@ interface Step {
   contains?: string // a text the drawn page must contain
   shot?: string
   settle?: number // ms to wait before the next step when no page is expected (firmware cursor moves)
+  raw?: boolean // a screen the app does not draw (the system exit dialog): screenshot only, no page check
 }
 interface Run {
   query: string
@@ -49,6 +52,9 @@ const RUNS: Run[] = [
     steps: [
       { expect: 'A', contains: '3 need you · 2 mail · 1 TG', shot: '08-A-home-telegram.png' },
       { input: 'click', expect: 'B', contains: 'TG · Sam (Crew group)', shot: '09-B-telegram.png' },
+      { input: 'click', expect: 'C', contains: 'To: Sam · Telegram, Crew group', shot: '17-C-telegram-confirm.png' },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'SENT', contains: 'Sent on Telegram √', shot: '18-sent-telegram.png' },
     ],
   },
   {
@@ -66,6 +72,16 @@ const RUNS: Run[] = [
       { input: 'down', expect: 'F', contains: 'No connection', shot: '14-F-offline.png' },
       { input: 'down', expect: 'F', contains: 'Working', shot: '15-F-working.png' },
       { input: 'down', expect: 'F', contains: "Couldn't load", shot: '16-F-error.png' },
+      { input: 'down', expect: 'F', contains: 'Too many tries', shot: '20-F-later.png' },
+      { input: 'down', expect: 'F', contains: "Today's demo limit", shot: '21-F-limit.png' },
+    ],
+  },
+  {
+    query: '?sources=mail',
+    steps: [
+      { expect: 'A', contains: '2 need you' },
+      // simulator 0.9.5 draws no exit dialog: after shutDownPageContainer(1) the glasses canvas goes black (seen 2026-11-23)
+      { input: 'double_click', settle: 1500, raw: true, shot: '19-double-press-sim.png' },
     ],
   },
 ]
@@ -128,10 +144,17 @@ async function waitPage(screen: string, timeoutMs = 15_000): Promise<{ ok: boole
   throw new Error(`timeout waiting for page ${screen}`)
 }
 
-function pngSize(buf: Buffer): { w: number; h: number } {
-  const sig = buf.subarray(0, 8).toString('hex')
-  if (sig !== '89504e470d0a1a0a' || buf.subarray(12, 16).toString('ascii') !== 'IHDR') throw new Error('not a PNG')
-  return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) }
+/** Screenshot → flattened RGB PNG on disk; returns the problems (size, colour type). */
+async function shoot(file: string): Promise<{ size: string; problems: string[] }> {
+  const r = await get(`${API}/api/screenshot/glasses`, 10_000)
+  const flat = flattenOnBlack(Buffer.from(await r.arrayBuffer()))
+  const { w, h, colorType } = pngInfo(flat)
+  const size = `${w}×${h}`
+  const problems: string[] = []
+  if (w !== SCREEN_W || h !== SCREEN_H) problems.push(`PNG is ${size}, not 576×288`)
+  if (colorType !== 2) problems.push(`PNG colour type ${colorType}, not RGB`)
+  writeFileSync(join(OUT, file), flat)
+  return { size, problems }
 }
 
 interface Row {
@@ -198,6 +221,14 @@ async function main(): Promise<number> {
           const j = (await r.json()) as { ok?: boolean }
           if (!j.ok) throw new Error(`input ${step.input} refused`)
         }
+        if (step.raw && step.shot) {
+          await sleep(step.settle ?? 500)
+          const shot = await shoot(step.shot)
+          if (shot.problems.length) failed++
+          const result = shot.problems.length ? `FAIL: ${shot.problems.join('; ')}` : 'ok'
+          rows.push({ shot: step.shot, screen: 'system', size: shot.size, lines: 0, widest: 0, result })
+          continue
+        }
         if (!step.expect) {
           await sleep(step.settle ?? 500)
           continue
@@ -213,12 +244,9 @@ async function main(): Promise<number> {
         problems.push(...report.problems)
         let size = '?'
         if (step.shot) {
-          const r = await get(`${API}/api/screenshot/glasses`, 10_000)
-          const buf = Buffer.from(await r.arrayBuffer())
-          const { w, h } = pngSize(buf)
-          size = `${w}×${h}`
-          if (w !== SCREEN_W || h !== SCREEN_H) problems.push(`PNG is ${size}, not 576×288`)
-          writeFileSync(join(OUT, step.shot), buf)
+          const shot = await shoot(step.shot)
+          size = shot.size
+          problems.push(...shot.problems)
         }
         if (problems.length) failed++
         rows.push({

@@ -1,15 +1,21 @@
 // One list of « items that need you », fed by sources. Pure: no SDK, no DOM, no network.
 import type { Dataset, Item, Source } from './types.ts'
+import { isSafeReply } from './replies.ts'
 
-export const ALT_MAX_CHARS = 60
+export { ALT_MAX_CHARS } from './replies.ts'
 
-/** Keep only alternatives a person could send as is: one line, ≤ 60 characters, no link. At most 4. */
+/**
+ * Keep only alternatives a person could send as is (src/logic/replies.ts: one row, ≤ 60 characters, ≤ 552 px, every
+ * glyph drawable, no link / address / long number / money / markup / invisible character). At most 4.
+ */
 export function validAlts(alts: readonly string[] | undefined): string[] {
   if (!alts) return []
-  return alts
-    .map((a) => a.trim())
-    .filter((a) => a.length > 0 && a.length <= ALT_MAX_CHARS && !/[\r\n]/.test(a) && !/(https?:|www\.)/i.test(a))
-    .slice(0, 4)
+  return alts.filter((a) => isSafeReply(a, 'alt')).slice(0, 4)
+}
+
+/** The draft as B and C may show it, or '' when it is refused (then B offers no `Send`, only the alternatives). */
+export function validDraft(draft: string | undefined): string {
+  return draft !== undefined && isSafeReply(draft, 'draft') ? draft : ''
 }
 
 function firstName(full: string): string {
@@ -20,7 +26,24 @@ function capitalize(s: string): string {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s
 }
 
-/** "11:02" → minutes since midnight, for ordering and the demo clock. */
+/**
+ * Sort key of an item's time: an ISO time → epoch ms; a bare "HH:MM" (the demo dataset, one day) → minutes as ms;
+ * anything else → -Infinity (listed last). Never throws: one odd time must not blank the glasses (review finding 8).
+ */
+export function timeKey(at: string): number {
+  const hhmm = /^(\d{1,2}):(\d{2})$/.exec(at.trim())
+  if (hhmm) return (Number(hhmm[1]) * 60 + Number(hhmm[2])) * 60_000
+  const t = Date.parse(at)
+  return Number.isFinite(t) ? t : -Infinity
+}
+
+/** What the glasses show for an item's time: "11:02" as is, an ISO time as its own wall clock, else ''. */
+export function shownTime(at: string): string {
+  if (/^\d{1,2}:\d{2}$/.test(at.trim())) return at.trim()
+  return /T(\d{2}:\d{2})/.exec(at)?.[1] ?? ''
+}
+
+/** "11:02" → minutes since midnight, for the demo clock and the calendar. */
 export function minutes(hhmm: string): number {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim())
   if (!m) throw new Error(`not a time: ${hhmm}`)
@@ -50,7 +73,7 @@ function mailItems(ds: Dataset, alts: Record<string, string[]>): Item[] {
       address: p.email,
       at: m.at,
       summary: m.summary6 ?? m.subject,
-      draft: m.draft ?? '',
+      draft: validDraft(m.draft),
       alts: validAlts(alts[m.from]),
     })
   })
@@ -75,7 +98,7 @@ function telegramItems(ds: Dataset, alts: Record<string, string[]>): Item[] {
       chat: t.chat,
       at: t.at,
       summary: t.summary ?? t.text,
-      draft: t.draft ?? '',
+      draft: validDraft(t.draft),
       alts: validAlts(alts[t.from]),
     })
   })
@@ -87,7 +110,7 @@ export function buildItems(ds: Dataset, sources: readonly Source[], alts: Record
   const all: Item[] = []
   if (sources.includes('mail')) all.push(...mailItems(ds, alts))
   if (sources.includes('telegram')) all.push(...telegramItems(ds, alts))
-  return all.sort((a, b) => minutes(b.at) - minutes(a.at))
+  return all.sort((a, b) => timeKey(b.at) - timeKey(a.at))
 }
 
 export interface Counts {

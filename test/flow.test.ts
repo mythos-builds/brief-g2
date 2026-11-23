@@ -21,6 +21,8 @@ function run(state: AppState, inputs: Input[]): { state: AppState; steps: Step[]
 }
 
 const press = (index?: number): Input => ({ type: 'press', index })
+// C's `Send now` as the glasses report it (list + label): a press by index alone never sends (review finding 2)
+const sendNow: Input = { type: 'press', index: 1, list: 'ok', label: 'Send now' }
 
 test('starts on A at 12:41, on E at 13:50, on F with the states preview', () => {
   assert.equal(start().screen.kind, 'home')
@@ -38,7 +40,7 @@ test('the whole path: A → B → D″ → B with the picked answer → C → Se
   assert.deepEqual(s.screen, { kind: 'mail', id: 'mail-0', draft: "No, I can't this Friday. Sorry." })
   s = reduce(s, press(0)).state // B: Send
   assert.deepEqual(s.screen, { kind: 'confirm', id: 'mail-0', draft: "No, I can't this Friday. Sorry." })
-  const sent = reduce(s, press(1)) // C: Send now
+  const sent = reduce(s, sendNow) // C: Send now
   assert.equal(sent.effect, 'fake-send')
   assert.equal(sent.state.screen.kind, 'sent')
   assert.deepEqual(sent.state.sent, [{ id: 'mail-0', draft: "No, I can't this Friday. Sorry." }])
@@ -65,15 +67,16 @@ test('a send always takes two deliberate presses: Send on B, then Send now on C'
   const inputs: Input[] = [press(0), press(1), press(2), press(3), press(4), press(), { type: 'up' }, { type: 'down' }, { type: 'double' }, { type: 'tick' }]
   const screens: AppState[] = [start(), b, reduce(b, press(1)).state, start(['mail'], '13:50')]
   for (const s of screens) for (const i of inputs) assert.notEqual(reduce(s, i).effect, 'fake-send', `${s.screen.kind} + ${JSON.stringify(i)}`)
-  // and only `Send now` (index 1) on C does
-  assert.equal(reduce(c, press(1)).effect, 'fake-send')
+  // and only `Send now` on C does, named by its list and label
+  assert.equal(reduce(c, press(1)).effect, 'none')
+  assert.equal(reduce(c, sendNow).effect, 'fake-send')
 })
 
 test('double-press = the system exit dialog everywhere, the state never changes', () => {
   const b = reduce(start(), press(0)).state
   const all = [start(), b, reduce(b, press(1)).state, reduce(b, press(0)).state, start(['mail'], '13:50'), initialState(ds, [], { clock: '12:41', states: true })]
   const c = reduce(b, press(0)).state
-  all.push(reduce(c, press(1)).state) // Sent ✓
+  all.push(reduce(c, sendNow).state) // Sent ✓
   for (const s of all) {
     const r = reduce(s, { type: 'double' })
     assert.equal(r.effect, 'exit-dialog')
@@ -83,7 +86,7 @@ test('double-press = the system exit dialog everywhere, the state never changes'
 
 test('Sent ✓ ignores presses; nothing can send twice', () => {
   const c = run(start(), [press(0), press(0)]).state
-  const sent = reduce(c, press(1)).state
+  const sent = reduce(c, sendNow).state
   for (const i of [press(0), press(1)]) {
     const r = reduce(sent, i)
     assert.equal(r.effect, 'none')
@@ -125,7 +128,7 @@ test('Other answers only with at least 2 valid alternatives', () => {
 test('after the last send, A shows Inbox clear', () => {
   let s = start()
   for (let n = 0; n < 2; n++) {
-    s = run(s, [press(0), press(0), press(1)]).state
+    s = run(s, [press(0), press(0), sendNow]).state
     s = reduce(s, { type: 'tick' }).state
     if (s.screen.kind === 'mail') s = { ...s, screen: { kind: 'home' } }
   }
