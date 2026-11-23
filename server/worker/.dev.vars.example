@@ -1,0 +1,7 @@
+# Local `wrangler dev` only. Copy to .dev.vars (git-ignored) and keep these DUMMY values: they reach no real service.
+ENV="dev"
+GOOGLE_CLIENT_ID="dummy-client-id.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="dummy-client-secret"
+# base64 of 32 bytes; this one is all zeros, a dummy
+TOKEN_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+ALLOWED_ACCOUNTS="demo-user@example.com"

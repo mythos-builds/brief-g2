@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-11-23T10:03:33.726Z",
+  "items": [
+    {
+      "id": "tg-0",
+      "source": "telegram",
+      "persona": "sam",
+      "name": "Sam",
+      "fullName": "Sam",
+      "address": "Crew group",
+      "chat": "Crew group",
+      "at": "11:40",
+      "summary": "Early truck, gate 3 at 6:30?",
+      "draft": "Sounds good, 6:30 at gate 3 works for the early truck. I'll be there to open it.",
+      "alts": [
+        "Yes, 6:30 at gate 3 works for me.",
+        "No, 6:30 is too early for gate 3.",
+        "Let's confirm this later today.",
+        "Who is opening gate 3 at 6:30?"
+      ]
+    },
+    {
+      "id": "mail-0",
+      "source": "mail",
+      "persona": "marco",
+      "name": "Marco",
+      "fullName": "Marco Bellini",
+      "address": "marco.bellini@northline-automation.example.com",
+      "at": "11:02",
+      "summary": "Friday 6 am shift cover request",
+      "draft": "Hi Marco, yes I can cover the 6 am start on line 1 on Friday. Let me know if you need anything else.",
+      "alts": [
+        "Yes, I can cover the 6 am start on Friday.",
+        "Sorry, I can't cover the 6 am shift on Friday.",
+        "I'll check and let you know before 3.",
+        "Does the shift end at the usual time?"
+      ]
+    },
+    {
+      "id": "mail-1",
+      "source": "mail",
+      "persona": "priya",
+      "name": "Priya",
+      "fullName": "Priya Nair",
+      "address": "p.nair@riverside-foods.example.net",
+      "at": "10:15",
+      "summary": "Line 2 servo overload, requests visit",
+      "draft": "Yes, we can send someone today. What time works best for you?",
+      "alts": [
+        "Yes, I'll send a technician over this afternoon.",
+        "No, we can't make it today, sorry.",
+        "We can come tomorrow morning instead.",
+        "Can you send the alarm logs from both trips?"
+      ]
+    }
+  ]
+}
