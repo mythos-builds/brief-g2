@@ -1,0 +1,5 @@
+{
+  "_note": "Hand-written. A free model rate-limited upstream (normal on the free tier): go to the next model.",
+  "status": 429,
+  "body": { "error": { "code": 429, "message": "particle-ai/particle-1:free is temporarily rate-limited upstream. Please retry shortly." } }
+}

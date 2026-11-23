@@ -1,0 +1,17 @@
+{
+  "_note": "Hand-written. A clean OpenRouter answer for the dataset's Marco mail (Friday 6 am).",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture-clean",
+    "model": "particle-ai/particle-1:free",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "{\"needs_reply\": true, \"summary\": \"can you cover Friday 6 am?\", \"draft\": \"Yes, I can cover Friday 6 am on line 1.\", \"alts\": [\"Yes, I can cover Friday 6 am.\", \"No, I can't this Friday. Sorry.\", \"Maybe. I'll confirm by 3 pm today.\", \"Which line, and until what time?\"]}"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "_note": "Hand-written. The answer carries a reasoning field, itself full of braces and a wrong decoy object; only message.content counts.",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture-reasoning",
+    "model": "recursive/flint-v1.0:free",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "reasoning": "The user wants JSON like {\"needs_reply\": false, \"summary\": \"decoy\"}. Sam mentions the user and asks a yes/no question about gate 3, so {needs_reply} must be true.",
+          "reasoning_details": [{ "type": "reasoning.text", "text": "{not json at all" }],
+          "content": "{\"needs_reply\": true, \"summary\": \"truck comes 30 min early, ok?\", \"draft\": \"Yes, gate 3 is open at 6:30.\", \"alts\": [\"Yes, open gate 3 at 6:30.\", \"No, keep it closed until 7.\", \"Let me check and tell you tonight.\", \"Who will be there to sign for it?\"]}"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "_note": "Hand-written. HTTP 200 but no {...} in the content: invalid, go to the next model.",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture-notjson",
+    "model": "recursive/flint-v1.0:free",
+    "choices": [ { "finish_reason": "stop", "message": { "role": "assistant", "content": "This message does not seem to need a reply." } } ]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "//": "Type check only (no build): node runs the .ts files directly. tsc is not a dependency of app/server; the check borrows the one in app/node_modules when present.",
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023", "dom"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["triage/**/*.ts"]
+}

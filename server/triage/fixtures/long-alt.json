@@ -1,0 +1,17 @@
+{
+  "_note": "Hand-written. alts[1] is 79 characters (> 60): the answer is invalid as a whole, never cut; go to the next model.",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture-longalt",
+    "model": "particle-ai/particle-1:free",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "{\"needs_reply\": true, \"summary\": \"can you cover Friday 6 am?\", \"draft\": \"Yes, I can cover Friday 6 am on line 1.\", \"alts\": [\"Yes, I can cover Friday 6 am.\", \"No, I am really sorry but I cannot cover this Friday because of a family thing.\", \"Maybe. I'll confirm by 3 pm today.\", \"Which line, and until what time?\"]}"
+        }
+      }
+    ]
+  }
+}

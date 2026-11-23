@@ -1,0 +1,17 @@
+{
+  "_note": "Hand-written. The JSON wrapped in prose and a code fence; only the outer {...} must be kept.",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture-wrapped",
+    "model": "baidu/ernie-5.5-flash-preview:free",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "Sure! Here is the triage result:\n```json\n{\"needs_reply\": true, \"summary\": \"line 2 tripped twice, visit today?\", \"draft\": \"I can be there at 4:30 today.\\nPlease keep the alarm history on the HMI.\", \"alts\": [\"Yes, I can come by at 4:30 today.\", \"No, I can't make it today. Sorry.\", \"I'll come tomorrow morning instead.\", \"Same servo overload alarm both times?\"]}\n```\nLet me know if you need anything else."
+        }
+      }
+    ]
+  }
+}

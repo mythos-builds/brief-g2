@@ -1,0 +1,11 @@
+{
+  "name": "brief-server",
+  "private": true,
+  "type": "module",
+  "description": "Brief server side. No dependency: run with Node 24 (type stripping).",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test triage/",
+    "check-live": "node triage/check-live.ts"
+  }
+}

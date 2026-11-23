@@ -1,0 +1,17 @@
+{
+  "_note": "Hand-written. A shipping notice: needs_reply false. The model still filled draft and alts; they are dropped (draft \"\", alts []).",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture-noreply",
+    "model": "particle-ai/particle-1:free",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "{\"needs_reply\": false, \"summary\": \"servo drives shipped, arriving Wednesday\", \"draft\": \"Thanks Jordan!\", \"alts\": [\"Thanks.\"]}"
+        }
+      }
+    ]
+  }
+}
