@@ -1,0 +1,17 @@
+{
+  "_note": "Hand-written. A clean brief for the Lina supplier call, every number from the mails.",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture",
+    "model": "baidu/ernie-5.5-flash-preview:free",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "{\"why\": \"Carton order 4471 is late again\", \"last\": \"New ship date Thursday, talk at 2 pm\", \"facts\": [\"The corrugator is down\", \"Order 4471 now ships Thursday\", \"She planned to talk at 2 pm\"]}"
+        }
+      }
+    ]
+  }
+}

@@ -4,11 +4,13 @@
 // Triages each of the dataset's 10 messages once (hard cap 20 requests per run), prints one line per item,
 // and writes seed/demo-items.json (dry run: seed/demo-items.dry.json) ONLY IF every answer is valid and
 // exactly 3 items need a reply, the same 3 the app shows. Exit 0 = file written, 1 = nothing written.
+// BRIEF-D3 § 3.6: it also writes seed/personas.json and seed/demo-calendar.json (from the dataset only, no model
+// call), in --dry-run too, each checked before it is written; an invalid one = nothing written for it, exit 1.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Dataset } from '../../src/logic/types.ts';
 import type { FetchLike } from '../triage/index.ts';
-import { runSeed, demoFileText, MAX_REQUESTS } from './seed.ts';
+import { runSeed, demoFileText, MAX_REQUESTS, personasOf, demoCalendarOf, checkPersonasFile, checkCalendarFile, jsonText } from './seed.ts';
 
 const HERE = new URL('./', import.meta.url);
 const dry = process.argv.includes('--dry-run');
@@ -40,6 +42,23 @@ else if (!apiKey) {
 }
 
 const ds = JSON.parse(readFileSync(datasetUrl, 'utf8')) as Dataset;
+
+// The two dataset-only files first: they do not depend on the model.
+let fileProblem = false;
+for (const [name, obj, check] of [
+  ['personas.json', { personas: personasOf(ds) }, checkPersonasFile],
+  ['demo-calendar.json', demoCalendarOf(ds), checkCalendarFile],
+] as const) {
+  const bad = check(obj);
+  const url = new URL(`../seed/${name}`, HERE);
+  if (bad) {
+    fileProblem = true;
+    console.log(`FAIL ${name}: ${bad} (not written)`);
+  } else {
+    writeFileSync(url, jsonText(obj));
+    console.log(`PASS ${name} → ${fileURLToPath(url)}`);
+  }
+}
 const run = await runSeed(ds, { apiKey, fetchFor: dry ? fixtureFetch() : undefined, maxRequests: MAX_REQUESTS });
 
 const pad = (s: string, n: number): string => (s.length >= n ? s : s + ' '.repeat(n - s.length));
@@ -63,3 +82,4 @@ if (run.problems.length) {
 }
 writeFileSync(outUrl, demoFileText(run.items));
 console.log(`PASS: ${run.items.length} items → ${fileURLToPath(outUrl)}`);
+if (fileProblem) process.exit(1);

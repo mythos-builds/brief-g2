@@ -1,0 +1,22 @@
+{
+  "_note": "Hand-written. stop_reason refusal: invalid, never read.",
+  "status": 200,
+  "body": {
+    "id": "msg_fixture",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-haiku-5-5",
+    "stop_reason": "refusal",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "x"
+      }
+    ],
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 10
+    }
+  }
+}

@@ -98,6 +98,9 @@ export interface TriageOptions {
   debugRaw?: boolean;
   /** Worker-style env object (bindings); read before globalThis.process.env. */
   env?: Record<string, string | undefined>;
+  /** Base address of the model API, e.g. "http://127.0.0.1:8799" for the local fake (BRIEF-D3 § 3.8).
+   *  Default: the real one. The Worker passes it only when ENV is "dev". */
+  baseUrl?: string;
 }
 
 export type TriageErrorCode =
@@ -114,7 +117,7 @@ export type TriageErrorCode =
  * `attempts` never hold a raw body (raw is dropped here even when debugRaw was set).
  */
 const HINT: Record<TriageErrorCode, string> = {
-  not_configured: 'MODEL_PROVIDER=claude is not configured yet (stub until 2026-11-27)',
+  not_configured: 'the model provider is not configured',
   missing_key: 'OPENROUTER_API_KEY is not set',
   all_failed: 'every model failed',
   budget_exhausted: 'request budget used up',
@@ -124,9 +127,10 @@ const HINT: Record<TriageErrorCode, string> = {
 export class TriageError extends Error {
   code: TriageErrorCode;
   attempts: Attempt[];
-  constructor(code: TriageErrorCode, attempts: Attempt[] = []) {
+  /** `hint` replaces the default line (e.g. the NAME of the missing key); never a value. */
+  constructor(code: TriageErrorCode, attempts: Attempt[] = [], hint?: string) {
     const codes = attempts.map((a) => (a.status !== null && a.status !== 200 ? String(a.status) : a.outcome));
-    super(`${code}: ${HINT[code]}${codes.length ? ` (${codes.join(' ')})` : ''}`);
+    super(`${code}: ${hint ?? HINT[code]}${codes.length ? ` (${codes.join(' ')})` : ''}`);
     this.name = 'TriageError';
     this.code = code;
     this.attempts = attempts.map(({ raw: _raw, ...rest }) => rest);

@@ -1,0 +1,26 @@
+{
+  "_note": "Hand-written. stop_reason max_tokens: a cut answer, invalid.",
+  "status": 200,
+  "body": {
+    "id": "msg_fixture",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-haiku-5-5",
+    "stop_reason": "max_tokens",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "x"
+      },
+      {
+        "type": "text",
+        "text": "{\"needs_reply\": true, \"summ"
+      }
+    ],
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 10
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "_note": "Hand-written. Prose, no JSON object.",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture",
+    "model": "baidu/ernie-5.5-flash-preview:free",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "Sure! Lina's order is late, talk at 2."
+        }
+      }
+    ]
+  }
+}

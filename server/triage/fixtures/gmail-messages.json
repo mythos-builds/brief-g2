@@ -1,0 +1,761 @@
+{
+ "_note": "Hand-built users.messages.get (format=full) answers. Account demo@example.com; every address is example.com/example.net, made up.",
+ "messages": {
+  "plain": {
+   "id": "18c0000000000001",
+   "threadId": "18c0000000000001",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"Marco Bellini\" <demo+marco@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "plain_padded": {
+   "id": "18c0000000000002",
+   "threadId": "18c0000000000002",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"Marco Bellini\" <demo+marco@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6kh"
+    }
+   }
+  },
+  "alternative": {
+   "id": "18c0000000000003",
+   "threadId": "18c0000000000003",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "multipart/alternative",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"Marco Bellini\" <demo+marco@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     }
+    ],
+    "body": {
+     "size": 0
+    },
+    "parts": [
+     {
+      "partId": "0",
+      "mimeType": "text/plain",
+      "filename": "",
+      "headers": [
+       {
+        "name": "Content-Type",
+        "value": "text/plain; charset=UTF-8"
+       }
+      ],
+      "body": {
+       "size": 5,
+       "data": "UGxhaW4gcGFydCB3aW5zLg"
+      }
+     },
+     {
+      "partId": "1",
+      "mimeType": "text/html",
+      "filename": "",
+      "headers": [
+       {
+        "name": "Content-Type",
+        "value": "text/html; charset=UTF-8"
+       }
+      ],
+      "body": {
+       "size": 5,
+       "data": "PHA-SFRNTCBwYXJ0PC9wPg"
+      }
+     }
+    ]
+   }
+  },
+  "html_only": {
+   "id": "18c0000000000004",
+   "threadId": "18c0000000000004",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "multipart/mixed",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"Marco Bellini\" <demo+marco@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     }
+    ],
+    "body": {
+     "size": 0
+    },
+    "parts": [
+     {
+      "partId": "0",
+      "mimeType": "text/html",
+      "filename": "",
+      "headers": [
+       {
+        "name": "Content-Type",
+        "value": "text/html; charset=UTF-8"
+       }
+      ],
+      "body": {
+       "size": 5,
+       "data": "PGh0bWw-PGhlYWQ-PHN0eWxlPnB7Y29sb3I6cmVkfTwvc3R5bGU-PC9oZWFkPjxib2R5PjxwPkNhbiB5b3UgY29tZSZuYnNwO2J5IDxiPnRvZGF5PC9iPj88L3A-PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0PjxwPlRvbSAmYW1wOyBKZXJyeTwvcD48L2JvZHk-PC9odG1sPg"
+      }
+     },
+     {
+      "partId": "1",
+      "mimeType": "text/plain",
+      "filename": "notes.txt",
+      "headers": [],
+      "body": {
+       "attachmentId": "ANGjdJ8",
+       "size": 5
+      }
+     }
+    ]
+   }
+  },
+  "stranger": {
+   "id": "18c0000000000005",
+   "threadId": "18c0000000000005",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"Marco Bellini\" <marco@stranger.example.net>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "other_account": {
+   "id": "18c0000000000006",
+   "threadId": "18c0000000000006",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"Marco\" <other+marco@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "unknown_tag": {
+   "id": "18c0000000000007",
+   "threadId": "18c0000000000007",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"Who\" <demo+zed@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "no_tag": {
+   "id": "18c0000000000008",
+   "threadId": "18c0000000000008",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "name_holds_alias": {
+   "id": "18c0000000000009",
+   "threadId": "18c0000000000009",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"demo+marco@example.com\" <evil@stranger.example.net>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "name_holds_alias_unquoted": {
+   "id": "18c000000000000a",
+   "threadId": "18c000000000000a",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "demo+marco@example.com <evil@stranger.example.net>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "two_from": {
+   "id": "18c000000000000b",
+   "threadId": "18c000000000000b",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"Marco Bellini\" <demo+marco@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "FROM",
+      "value": "evil@stranger.example.net"
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "odd_tag": {
+   "id": "18c000000000000c",
+   "threadId": "18c000000000000c",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"M\" <demo+mar.co@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "second_plus": {
+   "id": "18c000000000000d",
+   "threadId": "18c000000000000d",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"M\" <demo+marco+x@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "tag_with_space": {
+   "id": "18c000000000000e",
+   "threadId": "18c000000000000e",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"M\" <demo+mar co@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "no_payload": {
+   "id": "18c000000000000f",
+   "threadId": "18c000000000000f",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100
+  },
+  "upper_case": {
+   "id": "18c0000000000010",
+   "threadId": "18c0000000000010",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"Marco\" <Demo+Marco@Example.COM>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "group": {
+   "id": "18c0000000000011",
+   "threadId": "18c0000000000011",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "friends: demo+marco@example.com, evil@stranger.example.net;"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "SGksIEtldmluIGlzIG9mZiBzaWNrIG9uIEZyaWRheS4gQ2FuIHlvdSBjb3ZlciB0aGUgNiBhbSBzdGFydCBvbiBsaW5lIDE_IFRoYW5rcywgTWFyY28gw6k"
+    }
+   }
+  },
+  "bad_base64": {
+   "id": "18c0000000000012",
+   "threadId": "18c0000000000012",
+   "labelIds": [
+    "Label_1"
+   ],
+   "snippet": "",
+   "internalDate": "1795452120000",
+   "sizeEstimate": 100,
+   "payload": {
+    "partId": "",
+    "mimeType": "text/plain",
+    "filename": "",
+    "headers": [
+     {
+      "name": "From",
+      "value": "\"Marco Bellini\" <demo+marco@example.com>"
+     },
+     {
+      "name": "To",
+      "value": "demo@example.com"
+     },
+     {
+      "name": "Subject",
+      "value": "Friday 6 am"
+     },
+     {
+      "name": "Date",
+      "value": "Mon, 23 Nov 2026 11:02:00 -0500"
+     },
+     {
+      "name": "Content-Type",
+      "value": "text/plain; charset=\"UTF-8\""
+     }
+    ],
+    "body": {
+     "size": 88,
+     "data": "!!!not*base64"
+    }
+   }
+  }
+ }
+}

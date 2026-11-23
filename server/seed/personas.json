@@ -1,0 +1,32 @@
+{
+  "personas": [
+    {
+      "key": "marco",
+      "name": "Marco",
+      "fullName": "Marco Bellini",
+      "address": "marco.bellini@northline-automation.example.com",
+      "company": "Northline Automation"
+    },
+    {
+      "key": "priya",
+      "name": "Priya",
+      "fullName": "Priya Nair",
+      "address": "p.nair@riverside-foods.example.net",
+      "company": "Riverside Foods"
+    },
+    {
+      "key": "jordan",
+      "name": "Jordan",
+      "fullName": "Jordan Blake",
+      "address": "jordan@kestrel-supply.example.com",
+      "company": "Kestrel Supply"
+    },
+    {
+      "key": "lina",
+      "name": "Lina",
+      "fullName": "Lina Chen",
+      "address": "lina.chen@acme-packaging.example.com",
+      "company": "Acme Packaging"
+    }
+  ]
+}

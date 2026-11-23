@@ -1,0 +1,17 @@
+{
+  "_note": "Hand-written. 5 facts: over the 4 limit.",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture",
+    "model": "baidu/ernie-5.5-flash-preview:free",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "{\"why\": \"Order 4471 late\", \"last\": \"Thursday\", \"facts\": [\"a.\", \"b.\", \"c.\", \"d.\", \"e.\"]}"
+        }
+      }
+    ]
+  }
+}

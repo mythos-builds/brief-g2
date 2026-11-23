@@ -1,0 +1,24 @@
+{
+  "now": "12:41",
+  "events": [
+    {
+      "start": "14:00",
+      "title": "Supplier call",
+      "who": "Lina Chen, Acme Packaging",
+      "brief": {
+        "why": "carton order #4471 late",
+        "last": "Nov 14 — she promised Friday",
+        "facts": [
+          "corrugator down since Monday",
+          "new ship date Thursday",
+          "line 3 has 2 days of cartons left"
+        ]
+      }
+    },
+    {
+      "start": "16:30",
+      "title": "Site visit, Riverside Foods line 2",
+      "who": "Priya Nair, Riverside Foods"
+    }
+  ]
+}

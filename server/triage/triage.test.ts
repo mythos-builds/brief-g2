@@ -197,10 +197,10 @@ test('missing key: clear error before any request', async () => {
   assert.equal(calls.length, 0);
 });
 
-test('MODEL_PROVIDER=claude: clear "not configured" error, no request', async () => {
+test('MODEL_PROVIDER=claude without ANTHROPIC_API_KEY: missing_key naming the key, no request', async () => {
   const { fetch, calls } = replay([]);
-  await assert.rejects(triage(MARCO, { env: { MODEL_PROVIDER: 'claude' }, fetch }), (e: unknown) =>
-    e instanceof TriageError && e.code === 'not_configured' && /not configured/.test(e.message));
+  await assert.rejects(triage(MARCO, { env: { MODEL_PROVIDER: 'claude', ANTHROPIC_API_KEY: '' }, fetch }), (e: unknown) =>
+    e instanceof TriageError && e.code === 'missing_key' && /ANTHROPIC_API_KEY is not set/.test(e.message));
   await assert.rejects(triage(MARCO, { provider: 'gpt', fetch }), (e: unknown) => e instanceof TriageError && e.code === 'bad_provider');
   assert.equal(calls.length, 0);
 });

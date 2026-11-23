@@ -1,0 +1,17 @@
+{
+  "_note": "Hand-written. A number not in the mails (5 days): refused as ungrounded.",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture",
+    "model": "baidu/ernie-5.5-flash-preview:free",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "{\"why\": \"Carton order 4471 is late\", \"last\": \"New ship date Thursday\", \"facts\": [\"Line 3 has 5 days of cartons left\"]}"
+        }
+      }
+    ]
+  }
+}

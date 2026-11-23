@@ -68,6 +68,9 @@ export function checkShape(obj: unknown): Checked {
   const words = wordCount(summary);
   if (words > LIMITS.summaryWords) return { ok: false, reason: `summary is ${words} words (max ${LIMITS.summaryWords})` };
   if (summary.length > LIMITS.summaryChars) return { ok: false, reason: `summary is ${summary.length} characters (max ${LIMITS.summaryChars})` };
+  // D3 review, finding 1: the summary is drawn on the glasses too, so it obeys the reply character rules
+  const safeSummary = safeText(summary, false);
+  if (!safeSummary.ok) return { ok: false, reason: `summary ${safeSummary.reason}` };
 
   if (!o.needs_reply) {
     // Nothing to answer: the draft and the alternatives are not used and not returned.

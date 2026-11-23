@@ -3,3 +3,6 @@
 import './triage.test.ts';
 import './review-d1.test.ts';
 import './review-d2.test.ts';
+import './gmail.test.ts';
+import './brief-claude.test.ts';
+import './review-d3.test.ts';

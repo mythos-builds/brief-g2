@@ -3,6 +3,7 @@
 // only fetch. This module only returns text; it never sends anything.
 import { triageOpenRouter } from './openrouter.ts';
 import { triageClaude } from './claude.ts';
+import { readEnv } from './chain.ts';
 import { TriageError } from './types.ts';
 import type { Item, TriageOptions, TriageResult } from './types.ts';
 
@@ -13,22 +14,21 @@ export type { CounterStore } from './budget.ts';
 export { FREE_CHAIN } from './openrouter.ts';
 export { LIMITS } from './validate.ts';
 
-/** opts.env (Worker bindings) first, then process.env when a Node-like runtime has one. */
-function readEnv(name: string, opts: TriageOptions): string | undefined {
-  if (opts.env && name in opts.env) return opts.env[name] || undefined;
-  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
-  return proc?.env?.[name];
+/** 'openrouter' or 'claude' (opts.provider, then env MODEL_PROVIDER, default openrouter); anything else throws. */
+export function providerOf(opts: TriageOptions): 'openrouter' | 'claude' {
+  const provider = (opts.provider ?? readEnv('MODEL_PROVIDER', opts) ?? 'openrouter').trim().toLowerCase();
+  if (provider === 'claude' || provider === 'openrouter') return provider;
+  throw new TriageError('bad_provider'); // the value itself is never echoed (finding 4)
+}
+
+/** The OpenRouter key (opts, then env), or the missing_key error that names it. */
+export function openRouterKey(opts: TriageOptions): string {
+  const apiKey = opts.apiKey ?? readEnv('OPENROUTER_API_KEY', opts);
+  if (!apiKey) throw new TriageError('missing_key');
+  return apiKey;
 }
 
 export async function triage(item: Item, opts: TriageOptions = {}): Promise<TriageResult> {
-  const provider = (opts.provider ?? readEnv('MODEL_PROVIDER', opts) ?? 'openrouter').trim().toLowerCase();
-  if (provider === 'claude') return triageClaude(item, opts);
-  if (provider !== 'openrouter') {
-    throw new TriageError('bad_provider'); // the value itself is never echoed (finding 4)
-  }
-  const apiKey = opts.apiKey ?? readEnv('OPENROUTER_API_KEY', opts);
-  if (!apiKey) {
-    throw new TriageError('missing_key');
-  }
-  return triageOpenRouter(item, { ...opts, apiKey });
+  if (providerOf(opts) === 'claude') return triageClaude(item, opts);
+  return triageOpenRouter(item, { ...opts, apiKey: openRouterKey(opts) });
 }

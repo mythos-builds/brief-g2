@@ -1,6 +1,6 @@
 // The seed's logic (no I/O): dataset → 10 triage calls (once each) → the demo items file of BRIEF-D2 § 3.10.
 // scripts/seed-demo.ts is the command line around it. Node 24, no dependency.
-import { buildItems } from '../../src/logic/items.ts';
+import { buildItems, companyOf } from '../../src/logic/items.ts';
 import { replyProblem } from '../../src/logic/replies.ts';
 import type { Dataset, Item as AppItem } from '../../src/logic/types.ts';
 import { TriageError, memoryBudget } from '../triage/index.ts';
@@ -145,4 +145,100 @@ export function checkDemoFile(obj: unknown): string | null {
 /** The output file's text. */
 export function demoFileText(items: AppItem[], at: Date = new Date()): string {
   return `${JSON.stringify({ generated_at: at.toISOString(), items }, null, 2)}\n`;
+}
+
+// ---- BRIEF-D3 § 3.6: the persona table and the frozen demo calendar (no model call; deterministic) ----
+
+export interface PersonaRow { key: string; name: string; fullName: string; address: string; company: string }
+export interface CalendarEvent { start: string; title: string; who: string; brief?: { why: string; last: string; facts: string[] } }
+
+export const DEMO_NOW = '12:41';
+export const EVENT_LIMITS = { title: 60, line: 60, factsMin: 1, factsMax: 4, events: 5 } as const;
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** The dataset's personas that have an email, in dataset order: name = first name, company = the app's companyOf. */
+export function personasOf(ds: Dataset): PersonaRow[] {
+  const rows: PersonaRow[] = [];
+  for (const [key, p] of Object.entries(ds.personas)) {
+    if (!p.email) continue;
+    rows.push({ key, name: p.name.split(/\s+/)[0], fullName: p.name, address: p.email, company: companyOf(p.email) ?? '' });
+  }
+  return rows;
+}
+
+/** "<fullName>, <company>" or "" (BRIEF-D3 § 3.4). */
+export function whoOf(ds: Dataset, key: string): string {
+  const p = personasOf(ds).find((r) => r.key === key);
+  return p ? `${p.fullName}${p.company ? `, ${p.company}` : ''}` : '';
+}
+
+/** Today's dataset events that start after DEMO_NOW, in order, 5 at most. */
+export function demoCalendarOf(ds: Dataset): { now: string; events: CalendarEvent[] } {
+  const events = ds.calendar
+    .filter((e) => e.start > DEMO_NOW)
+    .sort((a, b) => a.start.localeCompare(b.start))
+    .slice(0, EVENT_LIMITS.events)
+    .map((e) => {
+      const ev: CalendarEvent = { start: e.start, title: e.title, who: whoOf(ds, e.with) };
+      if (e.brief) ev.brief = { why: e.brief.why, last: e.brief.last, facts: [...e.brief.facts] };
+      return ev;
+    });
+  return { now: DEMO_NOW, events };
+}
+
+const oneLine = (v: unknown, max: number): boolean => typeof v === 'string' && v.trim() !== '' && v.length <= max && !/[\r\n]/.test(v);
+
+/** null when `obj` is a valid personas file (§ 3.6), else the first reason. */
+export function checkPersonasFile(obj: unknown): string | null {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return 'not an object';
+  const o = obj as Record<string, unknown>;
+  if (Object.keys(o).join(',') !== 'personas') return 'top-level keys are not exactly personas';
+  if (!Array.isArray(o.personas) || o.personas.length === 0) return 'personas is not a non-empty array';
+  const keys = new Set<string>();
+  for (const [n, p] of o.personas.entries()) {
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return `personas[${n}] is not an object`;
+    const r = p as Record<string, unknown>;
+    if (Object.keys(r).sort().join(',') !== 'address,company,fullName,key,name') return `personas[${n}] fields are not key,name,fullName,address,company`;
+    for (const k of ['key', 'name', 'fullName', 'address', 'company']) if (typeof r[k] !== 'string' || r[k] === '') return `personas[${n}].${k} is not a non-empty string`;
+    if (!/^[a-z0-9]{1,32}$/.test(r.key as string)) return `personas[${n}].key is not a plain tag`;
+    if (!/\.example\.(com|net|org)$/.test(r.address as string)) return `personas[${n}].address is not a fictional example address`;
+    if (keys.has(r.key as string)) return `personas[${n}].key is repeated`;
+    keys.add(r.key as string);
+  }
+  return null;
+}
+
+/** null when `obj` is a valid demo calendar file (§ 3.4 and 3.6), else the first reason. */
+export function checkCalendarFile(obj: unknown): string | null {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return 'not an object';
+  const o = obj as Record<string, unknown>;
+  if (Object.keys(o).sort().join(',') !== 'events,now') return 'top-level keys are not exactly now,events';
+  if (o.now !== DEMO_NOW) return `now is not "${DEMO_NOW}"`;
+  if (!Array.isArray(o.events) || o.events.length > EVENT_LIMITS.events) return 'events is not an array of 5 at most';
+  let prev = '';
+  for (const [n, e] of o.events.entries()) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return `events[${n}] is not an object`;
+    const r = e as Record<string, unknown>;
+    for (const k of Object.keys(r)) if (!['start', 'title', 'who', 'brief'].includes(k)) return `events[${n}] has an extra field ${k}`;
+    if (typeof r.start !== 'string' || !HHMM.test(r.start)) return `events[${n}].start is not HH:MM`;
+    if (r.start <= DEMO_NOW) return `events[${n}] does not start after now`;
+    if (r.start < prev) return `events[${n}] is out of order`;
+    prev = r.start;
+    if (!oneLine(r.title, EVENT_LIMITS.title)) return `events[${n}].title is not one line of 1 to 60 characters`;
+    if (typeof r.who !== 'string' || /[\r\n]/.test(r.who)) return `events[${n}].who is not a one-line string`;
+    if ('brief' in r) {
+      const b = r.brief as Record<string, unknown>;
+      if (!b || typeof b !== 'object' || Array.isArray(b) || Object.keys(b).sort().join(',') !== 'facts,last,why') return `events[${n}].brief fields are not why,last,facts`;
+      if (!oneLine(b.why, EVENT_LIMITS.line)) return `events[${n}].brief.why is not one line of 1 to 60 characters`;
+      if (!oneLine(b.last, EVENT_LIMITS.line)) return `events[${n}].brief.last is not one line of 1 to 60 characters`;
+      if (!Array.isArray(b.facts) || b.facts.length < EVENT_LIMITS.factsMin || b.facts.length > EVENT_LIMITS.factsMax) return `events[${n}].brief.facts is not 1 to 4 lines`;
+      for (const [i, f] of b.facts.entries()) if (!oneLine(f, EVENT_LIMITS.line)) return `events[${n}].brief.facts[${i}] is not one line of 1 to 60 characters`;
+    }
+  }
+  return null;
+}
+
+/** A JSON file's text: two-space indent, final newline. */
+export function jsonText(obj: unknown): string {
+  return `${JSON.stringify(obj, null, 2)}\n`;
 }

@@ -1,0 +1,26 @@
+{
+  "_note": "Hand-written. A clean brief from Claude.",
+  "status": 200,
+  "body": {
+    "id": "msg_fixture",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-haiku-5-5",
+    "stop_reason": "end_turn",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "x"
+      },
+      {
+        "type": "text",
+        "text": "{\"why\": \"Carton order 4471 is late again\", \"last\": \"New ship date Thursday, talk at 2 pm\", \"facts\": [\"The corrugator is down\"]}"
+      }
+    ],
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 10
+    }
+  }
+}

@@ -1,5 +1,5 @@
 {
   "type": "module",
-  "main": "./seed.test.ts",
-  "//": "`node --test scripts/` resolves this folder through \"main\": the seed's tests. Nothing imports this folder."
+  "main": "./all.test.ts",
+  "//": "`node --test scripts/` resolves this folder through \"main\": one entry that loads every test file of the folder. Nothing imports this folder."
 }

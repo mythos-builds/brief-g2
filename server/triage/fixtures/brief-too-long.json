@@ -1,0 +1,17 @@
+{
+  "_note": "Hand-written. why is 75 characters: over the 60 limit, invalid (never cut).",
+  "status": 200,
+  "body": {
+    "id": "gen-fixture",
+    "model": "baidu/ernie-5.5-flash-preview:free",
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "message": {
+          "role": "assistant",
+          "content": "{\"why\": \"Carton order 4471 is late again because the corrugator at the plant is down\", \"last\": \"New ship date Thursday\", \"facts\": [\"The corrugator is down\"]}"
+        }
+      }
+    ]
+  }
+}

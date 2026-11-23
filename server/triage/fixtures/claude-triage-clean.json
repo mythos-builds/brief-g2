@@ -1,0 +1,26 @@
+{
+  "_note": "Hand-written Messages API answer (shape from the claude-api skill): a thinking block, then the JSON text.",
+  "status": 200,
+  "body": {
+    "id": "msg_fixture",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-haiku-5-5",
+    "stop_reason": "end_turn",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "x"
+      },
+      {
+        "type": "text",
+        "text": "{\"needs_reply\": true, \"summary\": \"can you cover Friday 6 am?\", \"draft\": \"Yes, I can cover Friday 6 am on line 1.\", \"alts\": [\"Yes, I can cover Friday 6 am.\", \"No, I can't this Friday. Sorry.\", \"Maybe. I'll confirm by 3 pm today.\", \"Which line, and until what time?\"]}"
+      }
+    ],
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 10
+    }
+  }
+}

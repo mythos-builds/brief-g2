@@ -11,6 +11,9 @@
     "check-live": "node triage/check-live.ts",
     "seed": "node scripts/seed-demo.ts",
     "seed:dry": "node scripts/seed-demo.ts --dry-run",
-    "typecheck": "../node_modules/.bin/tsc -p tsconfig.json"
+    "typecheck": "../node_modules/.bin/tsc -p tsconfig.json",
+    "test:py": "python3 -m unittest discover -s scripts -p 'test_*.py'",
+    "fake": "node scripts/fake-upstreams.ts",
+    "seed-label:dry": "python3 scripts/seed_label.py --dry-run"
   }
 }
