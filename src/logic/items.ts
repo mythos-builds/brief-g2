@@ -1,5 +1,5 @@
 // One list of « items that need you », fed by sources. Pure: no SDK, no DOM, no network.
-import type { Dataset, Item, Source } from './types.ts'
+import type { CalEvent, Dataset, Item, Source } from './types.ts'
 import { isSafeReply } from './replies.ts'
 
 export { ALT_MAX_CHARS } from './replies.ts'
@@ -136,17 +136,44 @@ export function needLine(items: readonly Item[], sources: readonly Source[]): st
   return parts.join(' · ')
 }
 
-/** The next calendar event after the clock, as « next 14:00 Supplier call ». */
-export function nextEvent(ds: Dataset, clock: string): string | undefined {
+/** The dataset's calendar in the contract's shape (BRIEF-D3.md § 3.4), same order: `who` = "<name>, <company>" or "". */
+export function eventsOf(ds: Dataset): CalEvent[] {
+  return ds.calendar.map((e) => {
+    const p = ds.personas[e.with]
+    const company = companyOf(p?.email)
+    const who = p ? `${p.name}${company ? `, ${company}` : ''}` : ''
+    return e.brief ? { start: e.start, title: e.title, who, brief: e.brief } : { start: e.start, title: e.title, who }
+  })
+}
+
+const isClock = (s: string) => /^\d{1,2}:\d{2}$/.test(s.trim())
+
+/** The next event after the clock, as « next 14:00 Supplier call »; no clock known ('') → none. */
+export function nextOf(events: readonly CalEvent[], clock: string): string | undefined {
+  if (!isClock(clock)) return undefined
   const now = minutes(clock)
-  const ev = [...ds.calendar].sort((a, b) => minutes(a.start) - minutes(b.start)).find((e) => minutes(e.start) > now)
+  const ev = events
+    .filter((e) => isClock(e.start))
+    .sort((a, b) => minutes(a.start) - minutes(b.start))
+    .find((e) => minutes(e.start) > now)
   return ev ? `next ${ev.start} ${ev.title}` : undefined
 }
 
-/** The meeting brief is due from 10 minutes before an event that has one until it starts. */
-export function briefDue(ds: Dataset, clock: string): number {
+/** The meeting brief is due from 10 minutes before an event that has one until it starts (index, or -1). */
+export function briefDueIn(events: readonly CalEvent[], clock: string): number {
+  if (!isClock(clock)) return -1
   const now = minutes(clock)
-  return ds.calendar.findIndex((e) => e.brief && now >= minutes(e.start) - 10 && now < minutes(e.start))
+  return events.findIndex((e) => e.brief && isClock(e.start) && now >= minutes(e.start) - 10 && now < minutes(e.start))
+}
+
+/** The next calendar event after the clock, as « next 14:00 Supplier call » (the dataset's calendar). */
+export function nextEvent(ds: Dataset, clock: string): string | undefined {
+  return nextOf(eventsOf(ds), clock)
+}
+
+/** The dataset's calendar: the index of the event whose brief is due, or -1. */
+export function briefDue(ds: Dataset, clock: string): number {
+  return briefDueIn(eventsOf(ds), clock)
 }
 
 export function homeLabel(item: Item): string {

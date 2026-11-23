@@ -7,3 +7,6 @@ label { display: block; font-weight: 600; margin-bottom: 8px; }
 input { font: inherit; font-size: 24px; letter-spacing: 0.2em; width: 8ch; padding: 6px 8px; }
 button { font: inherit; padding: 8px 16px; margin-left: 8px; }
 #pair-status { color: var(--muted); min-height: 1.4em; }
+h2 { font-size: 1rem; margin: 16px 0 4px; }
+#source { margin: 0 0 8px; }
+#disconnect { margin-left: 0; }

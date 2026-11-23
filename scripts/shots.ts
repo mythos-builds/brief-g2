@@ -3,19 +3,62 @@
 // Each PNG is flattened on black (plain RGB: the simulator's RGBA keeps the picture in the alpha channel).
 // Checks each PNG is 576×288, runs the measured line-width check on the page the app actually drew,
 // stops the simulator and the server, and exits 0 only if everything passed. Local only: no other network call.
+// Backend mode (BRIEF-D3.md § 4.5): a second dev server built with VITE_DATA_SOURCE=backend talks to the in-memory stub
+// of test/stub-backend.ts served on 127.0.0.1:8788 (the contract of BRIEF-D3.md § 3; no Worker, nothing upstream).
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
-import { mkdirSync, writeFileSync, readdirSync, unlinkSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
+import { mkdirSync, writeFileSync, readdirSync, unlinkSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { checkPage, SCREEN_H, SCREEN_W } from '../src/logic/measure.ts'
 import { flattenOnBlack, pngInfo } from './png.ts'
-import type { PageSpec } from '../src/logic/types.ts'
+import type { Dataset, PageSpec } from '../src/logic/types.ts'
+import { stubBackend } from '../test/stub-backend.ts'
+import { buildItems, eventsOf } from '../src/logic/items.ts'
+import { STATIC_ALTS } from '../src/data/static-alts.ts'
 
 const APP = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SIM = join(APP, 'tools', 'sim.sh')
 const OUT = join(APP, 'docs', 'screens')
 const DEV = 'http://127.0.0.1:5173'
+const DEV_BACKEND = 'http://127.0.0.1:5174'
+const STUB_PORT = 8788
+const STUB = `http://127.0.0.1:${STUB_PORT}`
 const API = 'http://127.0.0.1:9898'
+
+// ---- the stub backend for the backend-mode runs ----
+const ds = JSON.parse(readFileSync(join(APP, 'src', 'data', 'dataset.json'), 'utf8')) as Dataset
+const supplier = eventsOf(ds).find((e) => e.brief)
+if (!supplier) throw new Error('the dataset has no event with a brief')
+const be = stubBackend(buildItems(ds, ['mail'], STATIC_ALTS), { demoCalendar: { now: '13:52', events: [supplier] } })
+const extra = { signinNeeded: false } // shots only: every items call answers 403 signin_needed (the live F path)
+
+function serveStub(): Promise<Server> {
+  const server = createServer((req, res) => {
+    if (be.state.down) return void req.socket.destroy() // « No connection »
+    const cors = {
+      'access-control-allow-origin': DEV_BACKEND,
+      'access-control-allow-headers': 'authorization, content-type',
+      'access-control-allow-methods': 'GET, POST',
+    }
+    if (req.method === 'OPTIONS') return void res.writeHead(204, cors).end()
+    let body = ''
+    req.on('data', (d) => (body += d))
+    req.on('end', async () => {
+      const headers: Record<string, string> = {}
+      if (req.headers.authorization) headers.authorization = req.headers.authorization
+      if (req.headers['content-type']) headers['content-type'] = req.headers['content-type']
+      let r: { status: number; json(): Promise<unknown> }
+      if (extra.signinNeeded && req.url === '/api/items') r = { status: 403, json: async () => ({ error: 'signin_needed' }) }
+      else r = await be.fetch(`${STUB}${req.url}`, { method: req.method ?? 'GET', headers, body: body === '' ? undefined : body })
+      res.writeHead(r.status, { ...cors, 'content-type': 'application/json' }).end(JSON.stringify(await r.json()))
+    })
+  })
+  return new Promise((ok, ko) => {
+    server.once('error', ko)
+    server.listen(STUB_PORT, '127.0.0.1', () => ok(server))
+  })
+}
 
 type Action = 'click' | 'up' | 'down' | 'double_click'
 interface Step {
@@ -25,11 +68,21 @@ interface Step {
   shot?: string
   settle?: number // ms to wait before the next step when no page is expected (firmware cursor moves)
   raw?: boolean // a screen the app does not draw (the system exit dialog): screenshot only, no page check
+  absent?: string // a text the drawn page must NOT contain
+  before?: () => void // backend runs: change the stub before this step
+  through?: boolean // other pages (Working…) may come first: wait for `expect`
 }
 interface Run {
   query: string
+  backend?: boolean // the dev server built with VITE_DATA_SOURCE=backend, against the stub
+  setup?: () => void
+  allowConsole?: RegExp // backend runs: the simulator's own log line of a failure the run provokes on purpose
   steps: Step[]
 }
+let allowConsole: RegExp | undefined
+const isError = (e: ConsoleEntry) =>
+  (e.level === 'error' || e.message.startsWith('[uncaught]') || e.message.startsWith('[unhandledrejection]')) &&
+  !(allowConsole && allowConsole.test(e.message))
 
 const RUNS: Run[] = [
   {
@@ -84,6 +137,48 @@ const RUNS: Run[] = [
       { input: 'double_click', settle: 1500, raw: true, shot: '19-double-press-sim.png' },
     ],
   },
+  // ---- backend mode (BRIEF-D3.md § 4.2, 4.3, 4.1a) ----
+  {
+    query: '',
+    backend: true,
+    setup: () => Object.assign(be.state, { down: false, calendarError: false }),
+    steps: [
+      // GET /api/calendar answers now 13:52 and the 14:00 event with its brief → E opens by itself
+      { expect: 'E', contains: '14:00 · Supplier call', shot: '22-E-brief-backend.png', through: true },
+      { input: 'click', expect: 'A', contains: '2 need you · 13:52 · next 14:00 Supplier call', shot: '23-A-home-backend.png' },
+    ],
+  },
+  {
+    query: '',
+    backend: true,
+    setup: () => Object.assign(be.state, { down: false, calendarError: true }),
+    allowConsole: /^\[fetch\] 500 Internal Server Error http:\/\/127\.0\.0\.1:8788\/api\/calendar$/,
+    steps: [{ expect: 'A', contains: '2 need you', absent: 'next', shot: '24-A-home-no-calendar.png', through: true }],
+  },
+  {
+    query: '',
+    backend: true,
+    setup: () => {
+      Object.assign(be.state, { down: false, calendarError: false })
+      extra.signinNeeded = true
+    },
+    allowConsole: /^\[fetch\] 403 Forbidden http:\/\/127\.0\.0\.1:8788\/api\/items$/,
+    steps: [{ expect: 'F', contains: 'Sign-in needed — open brief.appfinishers.com', shot: '25-F-signin-backend.png', through: true }],
+  },
+  {
+    query: '',
+    backend: true,
+    setup: () => {
+      extra.signinNeeded = false
+      Object.assign(be.state, { down: true, calendarError: false })
+    },
+    allowConsole: /^\[fetch\].*http:\/\/127\.0\.0\.1:8788\/api\/session\b/,
+    steps: [
+      { expect: 'F', contains: 'No connection', shot: '26-F-offline-backend.png', through: true },
+      // the stub comes back; NO input: the app retries by itself (2 s, 5 s, 15 s, then every 30 s)
+      { before: () => (be.state.down = false), expect: 'E', contains: '14:00 · Supplier call', shot: '27-E-after-retry.png', through: true },
+    ],
+  },
 ]
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -125,18 +220,19 @@ async function newEntries(): Promise<ConsoleEntry[]> {
 }
 
 const seen: ConsoleEntry[] = []
-async function waitPage(screen: string, timeoutMs = 15_000): Promise<{ ok: boolean; spec: PageSpec }> {
+async function waitPage(screen: string, timeoutMs = 15_000, through = false): Promise<{ ok: boolean; spec: PageSpec }> {
   const end = Date.now() + timeoutMs
   while (Date.now() < end) {
     seen.push(...(await newEntries()))
     while (seen.length) {
       const e = seen.shift() as ConsoleEntry
       const i = e.message.indexOf('BRIEF_PAGE ')
-      if (e.level === 'error' || e.message.startsWith('[uncaught]') || e.message.startsWith('[unhandledrejection]'))
+      if (isError(e))
         throw new Error(`app console: ${e.message}`)
       if (i < 0) continue
       const page = JSON.parse(e.message.slice(i + 'BRIEF_PAGE '.length)) as { ok: boolean; spec: PageSpec }
-      if (page.spec.screen === screen) return page
+      if (page.spec.screen === screen && (!through || !JSON.stringify(page.spec).includes('Working…'))) return page
+      if (through) continue
       throw new Error(`expected page ${screen}, the app drew ${page.spec.screen}`)
     }
     await sleep(200)
@@ -170,32 +266,47 @@ async function main(): Promise<number> {
   const rows: Row[] = []
   let failed = 0
   let vite: ChildProcess | undefined
+  let viteBackend: ChildProcess | undefined
+  let stub: Server | undefined
   mkdirSync(OUT, { recursive: true })
   for (const f of readdirSync(OUT)) if (f.endsWith('.png')) unlinkSync(join(OUT, f))
 
   try {
     // the port must be free and the simulator stopped before we start
-    const busy = await get(DEV, 1000).then(
-      () => true,
-      () => false,
-    )
-    if (busy) throw new Error('port 5173 is already in use: stop that server first')
+    for (const u of [DEV, DEV_BACKEND, STUB]) {
+      const busy = await get(u, 1000).then(
+        () => true,
+        () => false,
+      )
+      if (busy) throw new Error(`${u} is already in use: stop that server first`)
+    }
     sim('stop')
 
-    vite = spawn(join(APP, 'node_modules', '.bin', 'vite'), ['--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
-      cwd: APP,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let viteLog = ''
-    vite.stdout?.on('data', (d) => (viteLog += d))
-    vite.stderr?.on('data', (d) => (viteLog += d))
-    await waitFor('the dev server on 127.0.0.1:5173', async () => (await get(DEV, 1000)).ok, 30_000).catch((e) => {
-      throw new Error(`${(e as Error).message}\n${viteLog}`)
-    })
-    console.log(`dev server up: ${DEV}`)
+    const startVite = async (base: string, env: Record<string, string>): Promise<ChildProcess> => {
+      const port = new URL(base).port
+      const child = spawn(join(APP, 'node_modules', '.bin', 'vite'), ['--host', '127.0.0.1', '--port', port, '--strictPort'], {
+        cwd: APP,
+        env: { ...process.env, ...env },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let viteLog = ''
+      child.stdout?.on('data', (d) => (viteLog += d))
+      child.stderr?.on('data', (d) => (viteLog += d))
+      await waitFor(`the dev server on ${base}`, async () => (await get(base, 1000)).ok, 30_000).catch((e) => {
+        throw new Error(`${(e as Error).message}\n${viteLog}`)
+      })
+      console.log(`dev server up: ${base}`)
+      return child
+    }
+    vite = await startVite(DEV, {})
+    viteBackend = await startVite(DEV_BACKEND, { VITE_DATA_SOURCE: 'backend', VITE_API_BASE: STUB })
+    stub = await serveStub()
+    console.log(`stub backend up: ${STUB}`)
 
     for (const run of RUNS) {
-      const url = `${DEV}/${run.query}`
+      run.setup?.()
+      allowConsole = run.allowConsole
+      const url = `${run.backend ? DEV_BACKEND : DEV}/${run.query}`
       console.log(`simulator → ${url}`)
       const pong = sim('start', url)
       if (!pong.includes('pong')) throw new Error(`simulator did not answer ping: ${pong}`)
@@ -212,6 +323,7 @@ async function main(): Promise<number> {
       )
 
       for (const step of run.steps) {
+        step.before?.()
         if (step.input) {
           const r = await fetch(`${API}/api/input`, {
             method: 'POST',
@@ -233,13 +345,14 @@ async function main(): Promise<number> {
           await sleep(step.settle ?? 500)
           continue
         }
-        const page = await waitPage(step.expect)
+        const page = await waitPage(step.expect, step.through ? 20_000 : 15_000, step.through)
         await sleep(400) // let the frame paint
         const problems: string[] = []
         if (!page.ok) problems.push('the SDK refused the page')
         const blob = JSON.stringify(page.spec)
         if (step.contains && !blob.includes(JSON.stringify(step.contains).slice(1, -1)))
           problems.push(`page does not contain « ${step.contains} »`)
+        if (step.absent && blob.includes(step.absent)) problems.push(`page contains « ${step.absent} »`)
         const report = checkPage(page.spec)
         problems.push(...report.problems)
         let size = '?'
@@ -260,7 +373,7 @@ async function main(): Promise<number> {
       }
       // nothing in the app console may be an error
       for (const e of await newEntries())
-        if (e.level === 'error' || e.message.startsWith('[uncaught]') || e.message.startsWith('[unhandledrejection]')) {
+        if (isError(e)) {
           failed++
           rows.push({ shot: '-', screen: '-', size: '-', lines: 0, widest: 0, result: `FAIL console: ${e.message}` })
         }
@@ -276,10 +389,12 @@ async function main(): Promise<number> {
       failed++
       console.error(`sim.sh stop failed: ${(e as Error).message}`)
     }
-    if (vite && vite.exitCode === null) {
-      vite.kill('SIGTERM')
-      await new Promise((r) => vite?.once('exit', r))
-    }
+    for (const child of [vite, viteBackend])
+      if (child && child.exitCode === null) {
+        child.kill('SIGTERM')
+        await new Promise((r) => child.once('exit', r))
+      }
+    if (stub) await new Promise((r) => stub?.close(r))
   }
 
   console.log('\nshot                        screen  png      text-lines  widest-px  result')

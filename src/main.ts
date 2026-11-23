@@ -1,6 +1,6 @@
 // Glue: SDK bridge ⇄ the pure state machine ⇄ the data (static demo data, or the Brief Worker in backend mode).
-// Static mode (default): nothing is fetched, nothing is sent. Backend mode (VITE_DATA_SOURCE=backend): BRIEF-D2.md § 3;
-// on day 2 the Worker sends nothing either ({"sent":true,"real":false}).
+// Static mode (default): nothing is fetched, nothing is sent. Backend mode (VITE_DATA_SOURCE=backend): BRIEF-D2.md § 3
+// and BRIEF-D3.md § 3 (items, calendar, `signin_needed`); the Worker sends nothing either ({"sent":true,"real":false}).
 import {
   CreateStartUpPageContainer,
   ListContainerProperty,
@@ -14,19 +14,24 @@ import './page.css'
 import dataset from './data/dataset.json'
 import { STATIC_ALTS } from './data/static-alts.ts'
 import { API_BASE, DATA_SOURCE, readConfig, REQUIRE_PAIRING, URL_SWITCHES } from './config.ts'
-import { BackendError, createClient, type Client } from './data/backend.ts'
+import { BackendError, bridgeStorage, createClient, type Client } from './data/backend.ts'
 import { buildItems, clockOf } from './logic/items.ts'
 import { initialState, reduce } from './logic/flow.ts'
 import { sideSignal, toInput } from './logic/input.ts'
+import { createRetry } from './logic/retry.ts'
 import { briefPages, pageFor, type PageContext } from './logic/pages.ts'
 import type { AppState, Dataset, Input, Item, PageSpec, Screen, StateName } from './logic/types.ts'
 
 const ds = dataset as Dataset
 const cfg = readConfig(URL_SWITCHES ? location.search : '')
-const ctx: PageContext = { ds, clock: cfg.clock ?? clockOf(ds.now), sources: cfg.sources }
 const backend = DATA_SOURCE === 'backend'
+// backend mode: the clock and the events come from `GET /api/calendar` (load); until then, and when it fails, none
+const ctx: PageContext = backend
+  ? { ds, clock: '', sources: cfg.sources, calendar: [] }
+  : { ds, clock: cfg.clock ?? clockOf(ds.now), sources: cfg.sources }
 let state: AppState = firstState()
 let page: PageSpec | undefined
+let drawnAt = 0 // performance.now() when `page` was drawn: an unnamed list press needs it up ≥ 300 ms (input.ts)
 let started = false
 let drawing = false
 let queue: Promise<void> = Promise.resolve()
@@ -95,9 +100,11 @@ async function render(bridge: EvenAppBridge): Promise<void> {
       ok = await bridge.rebuildPageContainer(new RebuildPageContainer(c))
     }
     page = spec
+    drawnAt = performance.now()
   } finally {
     drawing = false
   }
+  if (client) followRetry()
   // one machine-readable line per drawn page: `npm run shots` reads it back to run the line-width check
   console.log(`BRIEF_PAGE ${JSON.stringify({ ok, spec })}`)
 }
@@ -107,18 +114,48 @@ function failScreen(e: unknown): Screen {
   return stateScreen(kind === 'gone' ? 'error' : kind)
 }
 
-/** Backend mode: (re)load the list. Any failure = an F state with a plain line. */
+// « No connection — retrying » retries by itself: 2 s, 5 s, 15 s, then every 30 s; stopped in the background.
+const retry = createRetry(
+  { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
+  () => {
+    queue = queue.then(() => (isOffline() && bridgeRef ? load(bridgeRef) : undefined))
+  },
+)
+let bridgeRef: EvenAppBridge | undefined
+
+function isOffline(): boolean {
+  return state.screen.kind === 'state' && state.screen.which === 'offline'
+}
+
+/** After each page (backend mode): « No connection » arms the next retry; `Working…` keeps the count; else stop. */
+function followRetry(): void {
+  if (isOffline()) retry.arm()
+  else if (!(state.screen.kind === 'state' && state.screen.which === 'working')) retry.stop()
+}
+
+/** Backend mode: (re)load the list, then the calendar. Any list failure = an F state with a plain line; a calendar
+ * failure never blocks the list (the header then has no clock and no `next`). */
 async function load(bridge: EvenAppBridge): Promise<void> {
   if (!client) return
+  retry.disarm() // a press on « No connection » retries at once; the timer is armed again only if this one fails
   state = { ...state, screen: stateScreen('working') }
   await render(bridge)
   try {
     if (!client.mode()) await client.start(REQUIRE_PAIRING)
     const items: Item[] = await client.items(cfg.sources, REQUIRE_PAIRING)
-    state = initialState(ds, items, { clock: ctx.clock })
+    try {
+      const cal = await client.calendar()
+      ctx.clock = cal.now
+      ctx.calendar = cal.events
+    } catch {
+      ctx.clock = ''
+      ctx.calendar = []
+    }
+    state = initialState(ds, items, { clock: ctx.clock, events: ctx.calendar })
   } catch (e) {
     state = { ...state, items: [], screen: failScreen(e) }
   }
+  showSource()
   await render(bridge)
 }
 
@@ -176,14 +213,45 @@ function dispatch(bridge: EvenAppBridge, input: Input): void {
   })
 }
 
-/** The phone-side page (the WebView, not the glasses): « Have a code? » → a paired session → the list reloads. */
+const SOURCE_TEXT = {
+  static: 'Demo data — built into the app. Nothing is fetched or sent.',
+  demo: 'Demo data — from the Brief server. Nothing is sent.',
+  paired: 'Your inbox — the label brief-demo of the account you signed in with. Nothing is sent.',
+  none: 'Not connected yet.',
+} as const
+
+/** The phone-side page: which data the glasses show, and « Disconnect » only while paired. */
+function showSource(): void {
+  const el = document.querySelector<HTMLElement>('#source')
+  const disc = document.querySelector<HTMLButtonElement>('#disconnect')
+  const mode = client ? client.mode() : 'static'
+  if (el) el.textContent = SOURCE_TEXT[mode ?? 'none']
+  if (disc) disc.hidden = mode !== 'paired'
+}
+
+function tell(text: string): void {
+  const status = document.querySelector<HTMLElement>('#pair-status')
+  if (status) status.textContent = text
+}
+
+/** The phone-side page (the WebView, not the glasses): « Have a code? » → a paired session → the list reloads;
+ * « Disconnect » → the paired session is forgotten → back to demo. */
 function wirePairingForm(bridge: EvenAppBridge): void {
   const form = document.querySelector<HTMLFormElement>('#pair')
   const input = document.querySelector<HTMLInputElement>('#pair-code')
   const status = document.querySelector<HTMLElement>('#pair-status')
+  const disc = document.querySelector<HTMLButtonElement>('#disconnect')
   if (!form || !input || !status || !client) return
   const c = client
   form.hidden = false
+  disc?.addEventListener('click', () => {
+    queue = queue.then(async () => {
+      await c.disconnect()
+      tell('Disconnected. This phone no longer keeps your session. The glasses show demo data.')
+      showSource()
+      await load(bridge)
+    })
+  })
   const say: Record<string, string> = {
     gone: "That code didn't work. A code has 6 digits, lasts 10 minutes and works once.",
     later: 'Too many tries. Wait 10 minutes, then try again.',
@@ -214,18 +282,28 @@ function wirePairingForm(bridge: EvenAppBridge): void {
 }
 
 const bridge = await waitForEvenAppBridge()
+bridgeRef = bridge
 bridge.onEvenHubEvent((event) => {
-  if (sideSignal(event) === 'background' && sentTimer) clearTimeout(sentTimer)
-  const input = toInput(event, page, drawing)
+  const side = sideSignal(event)
+  if (side === 'background') {
+    if (sentTimer) clearTimeout(sentTimer)
+    retry.pause()
+  } else if (side === 'foreground') {
+    if (state.screen.kind === 'sent') armSentTimer(bridge)
+    retry.resume()
+  }
+  const input = toInput(event, page, drawing, performance.now() - drawnAt)
   if (input) dispatch(bridge, input)
 })
+showSource()
 if (backend) {
   client = createClient({
     base: API_BASE,
     fetch: (url, init) => fetch(url, init),
-    storage: {
-      get: (k) => bridge.getLocalStorage(k),
-      set: (k, v) => bridge.setLocalStorage(k, v),
+    storage: bridgeStorage(bridge),
+    onPairedDropped: () => {
+      tell('Your paired session ended, so this phone forgot it. Type a new code to see your inbox again; a press on the glasses shows demo data.')
+      showSource()
     },
   })
   wirePairingForm(bridge)

@@ -132,14 +132,21 @@ test('pairing: a wrong code → gone; the right one → a paired session kept in
   assert.equal(be.calls.filter((c) => c.path === '/api/session').length, sessionsBefore)
 })
 
-test('a stored paired session that expired is forgotten, and a demo session takes over (once)', async () => {
+test('D3 4.3: a stored paired session that expired is forgotten, NEVER silently replaced by demo data', async () => {
   const { be, client, storage } = setup({ codes: ['654321'] })
   await client.claim('654321')
   be.expireAll()
-  const c2 = createClient({ base: BASE, fetch: be.fetch, storage })
+  let told = 0
+  const c2 = createClient({ base: BASE, fetch: be.fetch, storage, onPairedDropped: () => told++ })
+  const sessionsBefore = be.calls.filter((c) => c.path === '/api/session').length
+  await rejectsWith(c2.items(['mail']), 'signin') // the glasses: « Sign-in needed », not the demo list
+  assert.equal(told, 1) // the phone-side page is told
+  assert.equal(c2.mode(), undefined)
+  assert.equal(storage.data.get(PAIRED_KEY), '')
+  assert.equal(be.calls.filter((c) => c.path === '/api/session').length, sessionsBefore) // no demo session asked for
+  // the next load (a deliberate press) starts demo mode
   assert.equal((await c2.items(['mail'])).length, 2)
   assert.equal(c2.mode(), 'demo')
-  assert.equal(storage.data.get(PAIRED_KEY), '')
 })
 
 test('REQUIRE_PAIRING on and nothing stored → « Sign-in needed », no call', async () => {

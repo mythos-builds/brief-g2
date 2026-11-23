@@ -2,7 +2,7 @@
 // storage are passed in, so `npm test` runs it against a stubbed backend.
 // Tokens: read only from the answers, sent only in the Authorization header, never logged, never put in an error.
 // A demo session lives in memory only; a paired session is kept with the SDK's storage bridge (setLocalStorage).
-import type { Item, Source } from '../logic/types.ts'
+import type { CalEvent, Item, Source } from '../logic/types.ts'
 import { validAlts, validDraft } from '../logic/items.ts'
 
 export type Mode = 'demo' | 'paired'
@@ -34,6 +34,19 @@ export interface ClientOptions {
   base: string // '' = same origin
   fetch: FetchLike
   storage: KeyValue
+  /** A paired session got a 401: it is forgotten (storage cleared) and the phone-side page must say so. */
+  onPairedDropped?: () => void
+}
+
+/** The SDK bridge's own storage (`getLocalStorage` / `setLocalStorage`, index.d.ts) as the client's KeyValue. */
+export function bridgeStorage(bridge: {
+  getLocalStorage(key: string): Promise<string>
+  setLocalStorage(key: string, value: string): Promise<boolean>
+}): KeyValue {
+  return {
+    get: async (k) => (await bridge.getLocalStorage(k)) ?? '',
+    set: (k, v) => bridge.setLocalStorage(k, v),
+  }
 }
 
 export const PAIRED_KEY = 'brief.paired-session'
@@ -45,7 +58,8 @@ interface Session {
   mode: Mode
 }
 
-/** HTTP status (+ the contract's error code) → what the glasses say. */
+/** HTTP status (+ the contract's error code) → what the glasses say. 403 `signin_needed` (BRIEF-D3.md § 3.1): the
+ * paired account's Google grant is dead → « Sign-in needed »; the session itself is kept (a new sign-in revives it). */
 export function failureOf(status: number, code: unknown): Failure | Gone {
   if (status === 404 || status === 409) return 'gone'
   if (status === 429) return code === 'daily_cap' ? 'limit' : 'later'
@@ -65,6 +79,49 @@ export function isItem(x: unknown): x is Item {
     Array.isArray(o.alts) &&
     o.alts.length === 4 &&
     o.alts.every((a) => typeof a === 'string')
+  )
+}
+
+export interface CalendarAnswer {
+  mode: Mode
+  now: string
+  events: CalEvent[]
+}
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/
+const line = (v: unknown, max: number) => typeof v === 'string' && v.length <= max && !CONTROL.test(v)
+
+/** BRIEF-D3.md § 3.4 `Event`, checked field by field (limits included); anything else is never drawn. */
+export function isEvent(x: unknown): x is CalEvent {
+  if (!x || typeof x !== 'object') return false
+  const o = x as Record<string, unknown>
+  const keys = Object.keys(o)
+  if (keys.some((k) => !['start', 'title', 'who', 'brief'].includes(k))) return false
+  if (typeof o.start !== 'string' || !HHMM.test(o.start) || !line(o.title, 60) || o.title === '' || !line(o.who, 120)) return false
+  if (o.brief === undefined) return true
+  const b = o.brief as Record<string, unknown> | null
+  if (!b || typeof b !== 'object') return false
+  return (
+    line(b.why, 60) &&
+    line(b.last, 60) &&
+    Array.isArray(b.facts) &&
+    b.facts.length >= 1 &&
+    b.facts.length <= 4 &&
+    b.facts.every((f) => line(f, 60))
+  )
+}
+
+export function isCalendar(x: unknown): x is CalendarAnswer {
+  if (!x || typeof x !== 'object') return false
+  const o = x as Record<string, unknown>
+  return (
+    (o.mode === 'demo' || o.mode === 'paired') &&
+    typeof o.now === 'string' &&
+    HHMM.test(o.now) &&
+    Array.isArray(o.events) &&
+    o.events.length <= 5 &&
+    o.events.every(isEvent)
   )
 }
 
@@ -137,12 +194,27 @@ export function createClient(opts: ClientOptions) {
     return (session as Session).mode
   }
 
-  /** Runs an authorised call; a 401 gets ONE new demo session and one retry (a stale paired session is forgotten). */
+  /** Forget the paired session: memory and the SDK storage. */
+  async function forgetPaired(): Promise<void> {
+    session = undefined
+    raw = new Map()
+    await opts.storage.set(PAIRED_KEY, '').catch(() => false)
+  }
+
+  /**
+   * Runs an authorised call. A 401 on a demo session gets ONE new demo session and one retry. A 401 on a paired
+   * session is NEVER silently replaced by demo data (BRIEF-D3.md § 4.3): it is forgotten, the phone-side page is told,
+   * and the glasses show « Sign-in needed »; a press there then starts a demo session (or pairing again).
+   */
   async function authed(method: string, path: string, body?: unknown, requirePairing = false) {
     if (!session) await start(requirePairing)
     let r = await call(method, path, body)
     if (r.status === 401) {
-      if (session?.mode === 'paired') await opts.storage.set(PAIRED_KEY, '').catch(() => false)
+      if (session?.mode === 'paired') {
+        await forgetPaired()
+        opts.onPairedDropped?.()
+        throw new BackendError('signin')
+      }
       if (requirePairing) throw new BackendError('signin')
       await newDemoSession()
       r = await call(method, path, body)
@@ -173,6 +245,23 @@ export function createClient(opts: ClientOptions) {
     return { real: o.real === true }
   }
 
+  /** `GET /api/calendar` (BRIEF-D3.md § 3.4). main.ts never lets a failure here block the list. */
+  async function calendar(): Promise<CalendarAnswer> {
+    const r = await authed('GET', '/api/calendar')
+    if (r.status !== 200) {
+      const f = failureOf(r.status, codeOf(r.json))
+      throw new BackendError(f === 'gone' ? 'error' : f)
+    }
+    if (!isCalendar(r.json)) throw new BackendError('error')
+    const { mode, now, events } = r.json
+    return { mode, now, events: events.map((e) => ({ ...e })) }
+  }
+
+  /** The phone-side « Disconnect »: the paired session is forgotten here and in the SDK storage; back to demo. */
+  async function disconnect(): Promise<void> {
+    await forgetPaired()
+  }
+
   async function skip(id: string): Promise<void> {
     const r = await authed('POST', `/api/items/${encodeURIComponent(id)}/skip`)
     if (r.status !== 200) throw new BackendError(failureOf(r.status, codeOf(r.json)))
@@ -188,7 +277,7 @@ export function createClient(opts: ClientOptions) {
     session = s
   }
 
-  return { start, items, send, skip, claim, mode: (): Mode | undefined => session?.mode }
+  return { start, items, calendar, send, skip, claim, disconnect, mode: (): Mode | undefined => session?.mode }
 }
 
 export type Client = ReturnType<typeof createClient>

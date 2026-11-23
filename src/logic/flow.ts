@@ -2,8 +2,8 @@
 // - double-press is the system exit dialog everywhere, never bound to an action;
 // - a send = `Send` on B, then `Send now` on C (the cursor starts on `Back`): two deliberate presses on labelled items;
 // - nothing is ever sent: `fake-send` only records the reply in memory.
-import type { AppState, Dataset, Effect, Input, Item, Screen, StateName } from './types.ts'
-import { briefDue } from './items.ts'
+import type { AppState, CalEvent, Dataset, Effect, Input, Item, Screen, StateName } from './types.ts'
+import { briefDueIn, eventsOf } from './items.ts'
 
 export const ACT_SEND = 'Send'
 export const ACT_OTHER = 'Other answers'
@@ -47,10 +47,11 @@ export function findItem(state: AppState, id: string): Item | undefined {
   return state.items.find((i) => i.id === id)
 }
 
-export function initialState(ds: Dataset, items: Item[], opts: { clock: string; states?: boolean }): AppState {
+/** `events` = the Worker's calendar (backend mode); absent = the dataset's. `clock` '' = not known: no brief is due. */
+export function initialState(ds: Dataset, items: Item[], opts: { clock: string; states?: boolean; events?: CalEvent[] }): AppState {
   let screen: Screen = { kind: 'home' }
   if (opts.states) screen = { kind: 'state', which: STATE_ORDER[0] }
-  else if (briefDue(ds, opts.clock) >= 0) screen = { kind: 'brief', page: 0 }
+  else if (briefDueIn(opts.events ?? eventsOf(ds), opts.clock) >= 0) screen = { kind: 'brief', page: 0 }
   return { items, sent: [], screen }
 }
 
@@ -107,7 +108,7 @@ export function reduce(state: AppState, input: Input, briefPages = 2): Step {
       if (input.type !== 'press') return stay(state)
       const label = picked(CONFIRM_ITEMS, input, LIST_OF.confirm)
       if (label === BACK) return go(state, { kind: 'mail', id: item.id, draft: s.draft })
-      // the only path to a send: `Send now`, on C's own list, with its label in the event (never by index alone)
+      // the only path to a send: `Send now`, on C's own list, with its label (input.ts ties both to the page drawn now)
       if (label === SEND_NOW && input.list === LIST_OF.confirm && input.label === SEND_NOW) {
         const at = state.items.findIndex((i) => i.id === item.id)
         const items = state.items.filter((i) => i.id !== item.id)

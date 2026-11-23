@@ -40,6 +40,14 @@ export interface CalendarRecord {
   brief?: { why: string; last: string; facts: string[] }
 }
 
+/** One calendar event as the glasses use it: BRIEF-D3.md § 3.4 `Event` (the Worker's answer, or the dataset's calendar). */
+export interface CalEvent {
+  start: string // "HH:MM"
+  title: string // ≤ 60 characters
+  who: string // "<fullName>, <company>" or ""
+  brief?: { why: string; last: string; facts: string[] }
+}
+
 export interface Dataset {
   now: string
   personas: Record<string, Persona>
@@ -84,7 +92,8 @@ export interface AppState {
 /**
  * What the glasses get from a gesture. On a list press: `index` = the selected row, `list` = the container the event
  * names, `label` = the row's text. A press whose list or label does not match the screen now drawn is dropped
- * (review finding 2), and `Send now` needs its label: a press with no label never sends.
+ * (review finding 2). input.ts fills `list` and `label` from the page drawn now; an SDK event that carries neither name
+ * is taken only once that page has been up ≥ 300 ms (BRIEF-D3.md § 4.1b), so `Send now` also works on an index-only event.
  */
 export type Input =
   | { type: 'press'; index?: number; list?: string; label?: string }

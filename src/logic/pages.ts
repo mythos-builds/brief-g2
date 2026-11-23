@@ -1,8 +1,8 @@
 // State → page description (pure data). Layout from SCREENS.md; every text is fitted with measured widths.
 import { pxTruncate } from '@evenrealities/pretext'
-import type { AppState, Dataset, Item, ListBox, PageSpec, StateName, TextBox } from './types.ts'
+import type { AppState, CalEvent, Dataset, Item, ListBox, PageSpec, StateName, TextBox } from './types.ts'
 import { actItems, altItems, CONFIRM_ITEMS, findItem, LIST_OF } from './flow.ts'
-import { briefDue, companyOf, homeLabel, needLine, nextEvent, shownTime, summaryLine } from './items.ts'
+import { briefDueIn, eventsOf, homeLabel, needLine, nextOf, shownTime, summaryLine } from './items.ts'
 import { DRAFT_PREFIX } from './replies.ts'
 import { LIST_ITEM_H, LIST_ITEM_PAD, MAX_LIST_ITEM_CHARS, MAX_TEXT_LINES, SCREEN_H, SCREEN_W, wrap } from './measure.ts'
 
@@ -23,8 +23,14 @@ export const STATE_TEXT: Record<StateName, string> = {
 
 export interface PageContext {
   ds: Dataset
-  clock: string // "HH:MM"
+  clock: string // "HH:MM"; '' = not known (backend mode, the calendar call failed): the header shows the counts only
   sources: readonly ('mail' | 'telegram')[]
+  /** Backend mode: the events of `GET /api/calendar` (BRIEF-D3.md § 3.4). Absent = the dataset's calendar (static). */
+  calendar?: CalEvent[]
+}
+
+export function eventsIn(ctx: PageContext): CalEvent[] {
+  return ctx.calendar ?? eventsOf(ctx.ds)
 }
 
 function text(name: string, x: number, y: number, w: number, h: number, content: string, capture = false): TextBox {
@@ -55,14 +61,15 @@ function fromLine(item: Item): string {
 }
 
 function homePage(state: AppState, ctx: PageContext): PageSpec {
-  const next = nextEvent(ctx.ds, ctx.clock)
+  const next = nextOf(eventsIn(ctx), ctx.clock)
   if (state.items.length === 0) {
     const content = next ? `Inbox clear ${CHECK}  ${next}` : `Inbox clear ${CHECK}`
     return { screen: 'A', boxes: [text('empty', 0, 0, SCREEN_W, SCREEN_H, content, true)] }
   }
   const head = needLine(state.items, ctx.sources)
   // the longest header that fits one line: counts · clock · next event
-  const candidates = [next ? `${head} · ${ctx.clock} · ${next}` : '', `${head} · ${ctx.clock}`, head].filter(Boolean)
+  const clock = ctx.clock
+  const candidates = [next && clock ? `${head} · ${clock} · ${next}` : '', clock ? `${head} · ${clock}` : '', head].filter(Boolean)
   const hdr = candidates.find((c) => lines(c, SCREEN_W) === 1) ?? head
   const labels = state.items.slice(0, 20).map((i) => fitLine(homeLabel(i), { kind: 'list', w: SCREEN_W, pad: 0 }))
   return {
@@ -106,12 +113,11 @@ function confirmPage(item: Item, draft: string): PageSpec {
 
 /** E, pre-paginated: page 1 = when · who · why · last; page 2 = the facts. */
 export function briefPages(ctx: PageContext): string[] {
-  const i = briefDue(ctx.ds, ctx.clock)
-  const ev = i >= 0 ? ctx.ds.calendar[i] : ctx.ds.calendar.find((e) => e.brief)
+  const events = eventsIn(ctx)
+  const i = briefDueIn(events, ctx.clock)
+  const ev = i >= 0 ? events[i] : events.find((e) => e.brief)
   if (!ev || !ev.brief) return ['No meeting brief']
-  const p = ctx.ds.personas[ev.with]
-  const company = companyOf(p?.email)
-  const who = p ? `Who: ${p.name}${company ? `, ${company}` : ''}` : ''
+  const who = ev.who ? `Who: ${ev.who}` : ''
   const page1 = [`${ev.start} · ${ev.title}`, who, `Why: ${ev.brief.why}`, `Last: ${ev.brief.last}`].filter(Boolean)
   const page2 = ev.brief.facts.slice(0, 4).map((f) => `• ${f}`)
   return [page1.join('\n'), page2.join('\n')]

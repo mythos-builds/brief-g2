@@ -32,7 +32,8 @@ npm install --ignore-scripts
 npm run dev     # 127.0.0.1:5173
 npm test        # pure logic: list building, the two-press send rule, reply checks, the backend client, PNG flattening
 npm run build   # type check + Vite build into dist/ (relative asset paths: works under /app/ and in an Even Hub package)
-npm run shots   # walks every screen in the simulator, writes docs/screens/*.png (RGB on black), checks size and line widths
+npm run shots   # walks every screen in the simulator, writes docs/screens/*.png (RGB on black), checks size and line widths;
+                # the backend runs use a second dev server (127.0.0.1:5174) and the in-memory stub of test/stub-backend.ts (127.0.0.1:8788)
 (cd server && node --test triage/)   # the triage layer's tests
 ```
 
@@ -47,6 +48,17 @@ and the simulator packages (`cd tools && npm ci --ignore-scripts`).
   On start it opens a demo session (a stored paired session wins), loads the items, and shows the same screens.
   `Send now` posts only the index of the reply shown (0 = the draft, 1–4 = an alternative) and shows `Sent` only after the
   Worker answers 200; on day 2 the Worker sends nothing. A failure shows a plain line on the glasses, never an error code.
+- Calendar (day 3): after the list, the app asks `GET /api/calendar`; its `now` is the clock in the header and its events
+  give `next 14:00 Supplier call` and the meeting brief (E, due from 10 minutes before an event that has a brief until
+  it starts). A failed calendar call never blocks the list: the header then shows the counts only (no clock, no `next`).
+- `No connection — retrying` retries by itself after 2 s, 5 s, 15 s, then every 30 s; a press retries at once; the timer
+  stops once the list loads and while the app is in the background (SDK events 5 / 6 / 7; it resumes on 4).
+- A paired account whose Google grant is dead (403 `signin_needed`) shows « Sign-in needed » with the address to open;
+  the paired session is kept. A paired session the server no longer knows (401) is forgotten, never silently swapped for
+  demo data: the glasses show « Sign-in needed », the phone-side page says the session ended, and a press shows demo data.
+- The phone-side page shows which data the glasses show (« Demo data » or « Your inbox »), the code form, and
+  « Disconnect » while paired (forgets the paired session in the SDK storage; back to demo). There is no logout route in
+  the contract: the forgotten session token stays valid on the server until it expires.
 - Pairing: the phone-side page shows « Have a code? »; the 6-digit code from `brief.appfinishers.com/connect` gives a
   paired session, kept with the SDK's storage. `VITE_REQUIRE_PAIRING=1` makes the glasses show « Sign-in needed » until
   then (default off = demo mode).
@@ -55,5 +67,13 @@ and the simulator packages (`cd tools && npm ci --ignore-scripts`).
 
 ## Screens (`docs/screens/`)
 
+`22` to `27` are backend mode against the stub: E opened by the calendar answer (`22`), A with the answer's clock and
+`next` (`23`), A when the calendar call fails (`24`), « Sign-in needed » from a 403 (`25`), « No connection » (`26`) and
+the list back after the automatic retry, with no press (`27`).
+
 `19-double-press-sim.png`: on a double-press the app calls the system exit dialog (`shutDownPageContainer(1)`). The
 simulator (0.9.5) draws no dialog: the glasses canvas goes black. What the real glasses show is not checked yet.
+
+## Known limits
+
+- The exit dialog (double press) draws nothing in the simulator 0.9.5 (`19-double-press-sim.png` is black); real glasses not checked.
