@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["triage/**/*.ts"]
+  "include": ["triage/**/*.ts", "scripts/**/*.ts"]
 }

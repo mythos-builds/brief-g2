@@ -13,6 +13,10 @@ export const FREE_CHAIN = [
   'recursive/flint-v1.0:free',
 ];
 export const DEFAULT_TIMEOUT_MS = 20_000;
+/** One total deadline per call, all models together (D1 review, finding 7). */
+export const DEFAULT_DEADLINE_MS = 25_000;
+/** A model that answered 429 is put aside at least this long (D1 review, finding 7). */
+export const MIN_COOLDOWN_MS = 60_000;
 
 /** The text the model answered: message.content only (the reasoning field is ignored). */
 function contentOf(bodyText: string): unknown {
@@ -20,33 +24,47 @@ function contentOf(bodyText: string): unknown {
   return data.choices?.[0]?.message?.content;
 }
 
+/** retry_after (seconds) from a 429 body, when OpenRouter gives one; never more than an hour. */
+function retryAfterMs(bodyText: string): number {
+  const m = /"retry_after(?:_seconds)?"\s*:\s*(\d+(?:\.\d+)?)/.exec(bodyText);
+  const s = m ? Number(m[1]) : 0;
+  return Math.min(Math.max(s * 1000, MIN_COOLDOWN_MS), 3_600_000);
+}
+
 export async function triageOpenRouter(item: Item, opts: TriageOptions & { apiKey: string }): Promise<TriageResult> {
   const models = opts.models ?? FREE_CHAIN;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const doFetch: FetchLike = opts.fetch ?? (globalThis.fetch as unknown as FetchLike);
+  const deadlineMs = opts.deadlineMs ?? DEFAULT_DEADLINE_MS;
+  const now = opts.now ?? Date.now;
+  // Bound: workerd throws "Illegal invocation" when fetch is called with a wrong `this` (D1 review, note 10).
+  const doFetch: FetchLike = opts.fetch ?? (globalThis.fetch.bind(globalThis) as unknown as FetchLike);
   const messages = buildMessages(item);
   const attempts: Attempt[] = [];
+  const started = now();
 
   const record = (a: Attempt): void => {
+    if (!opts.debugRaw) delete a.raw;
     attempts.push(a);
     if (opts.onAttempt) opts.onAttempt(a);
   };
 
   for (const model of models) {
-    if (opts.budget) {
-      if (opts.budget.left <= 0) {
-        throw new TriageError('budget_exhausted', `request budget used up before ${model}`, attempts);
-      }
-      opts.budget.left -= 1;
+    const until = opts.cooldown?.get(model);
+    if (until !== undefined && until > now()) continue; // 429 earlier in this run: no request spent on it
+    const remaining = deadlineMs - (now() - started);
+    if (remaining <= 0) break;
+    if (opts.budget && !(await opts.budget.take())) {
+      throw new TriageError('budget_exhausted', attempts);
     }
     const provider = `openrouter:${model}`;
     const controller = new AbortController();
     let timedOut = false;
+    const wait = Math.min(timeoutMs, remaining);
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, timeoutMs);
-    const t0 = Date.now();
+    }, wait);
+    const t0 = now();
     let status: number | null = null;
     let raw = '';
     try {
@@ -61,25 +79,27 @@ export async function triageOpenRouter(item: Item, opts: TriageOptions & { apiKe
       });
       status = res.status;
       raw = await res.text();
-    } catch (e) {
+    } catch {
       clearTimeout(timer);
-      const ms = Date.now() - t0;
-      if (timedOut) record({ provider, model, status, ms, outcome: 'timeout', reason: `no answer in ${timeoutMs} ms`, raw });
-      else record({ provider, model, status, ms, outcome: 'network_error', reason: (e as Error).message, raw });
+      const ms = now() - t0;
+      // The thrown message is never kept (finding 4): it can quote a URL, a host or a body.
+      if (timedOut) record({ provider, model, status, ms, outcome: 'timeout', reason: `no answer in ${wait} ms`, raw });
+      else record({ provider, model, status, ms, outcome: 'network_error', reason: 'network error', raw });
       continue;
     }
     clearTimeout(timer);
-    const ms = Date.now() - t0;
+    const ms = now() - t0;
 
     if (status !== 200) {
+      if (status === 429 && opts.cooldown) opts.cooldown.set(model, now() + retryAfterMs(raw));
       record({ provider, model, status, ms, outcome: 'http_error', reason: `HTTP ${status}`, raw });
       continue;
     }
     let content: unknown;
     try {
       content = contentOf(raw);
-    } catch (e) {
-      record({ provider, model, status, ms, outcome: 'invalid', reason: `response is not JSON: ${(e as Error).message}`, raw });
+    } catch {
+      record({ provider, model, status, ms, outcome: 'invalid', reason: 'response is not JSON', raw });
       continue;
     }
     const checked = parseAnswer(content);
@@ -91,6 +111,5 @@ export async function triageOpenRouter(item: Item, opts: TriageOptions & { apiKe
     return { ...checked.value, provider };
   }
 
-  const summary = attempts.map((a) => `${a.model}: ${a.reason || a.outcome}`).join('; ');
-  throw new TriageError('all_failed', `every model failed (${summary})`, attempts);
+  throw new TriageError('all_failed', attempts);
 }

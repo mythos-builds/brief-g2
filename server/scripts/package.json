@@ -1,0 +1,5 @@
+{
+  "type": "module",
+  "main": "./seed.test.ts",
+  "//": "`node --test scripts/` resolves this folder through \"main\": the seed's tests. Nothing imports this folder."
+}

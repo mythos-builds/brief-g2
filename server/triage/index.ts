@@ -7,7 +7,9 @@ import { TriageError } from './types.ts';
 import type { Item, TriageOptions, TriageResult } from './types.ts';
 
 export { TriageError } from './types.ts';
-export type { Attempt, FetchLike, Item, RequestBudget, TriageOptions, TriageResult } from './types.ts';
+export type { Attempt, FetchLike, Item, ModelCooldown, RequestBudget, TriageOptions, TriageResult } from './types.ts';
+export { memoryBudget, memoryCounterStore, dailyBudget, allBudgets, dayKey } from './budget.ts';
+export type { CounterStore } from './budget.ts';
 export { FREE_CHAIN } from './openrouter.ts';
 export { LIMITS } from './validate.ts';
 
@@ -22,11 +24,11 @@ export async function triage(item: Item, opts: TriageOptions = {}): Promise<Tria
   const provider = (opts.provider ?? readEnv('MODEL_PROVIDER', opts) ?? 'openrouter').trim().toLowerCase();
   if (provider === 'claude') return triageClaude(item, opts);
   if (provider !== 'openrouter') {
-    throw new TriageError('bad_provider', `MODEL_PROVIDER must be "openrouter" or "claude", got "${provider}"`);
+    throw new TriageError('bad_provider'); // the value itself is never echoed (finding 4)
   }
   const apiKey = opts.apiKey ?? readEnv('OPENROUTER_API_KEY', opts);
   if (!apiKey) {
-    throw new TriageError('missing_key', 'OPENROUTER_API_KEY is not set: the OpenRouter provider needs it (env var or opts.apiKey).');
+    throw new TriageError('missing_key');
   }
   return triageOpenRouter(item, { ...opts, apiKey });
 }

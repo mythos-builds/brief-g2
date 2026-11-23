@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { triage, TriageError, FREE_CHAIN } from './index.ts';
+import { triage, TriageError, FREE_CHAIN, memoryBudget } from './index.ts';
 import type { Attempt, FetchLike, Item } from './index.ts';
 import { buildUserMessage, SYSTEM_PROMPT } from './prompt.ts';
 import { extractOuterJson, parseAnswer, wordCount, LIMITS } from './validate.ts';
@@ -182,10 +182,10 @@ test('timeout on one model: next model', async () => {
 
 test('request budget: a shared cap stops the run with a typed error', async () => {
   const { fetch, calls } = replay(['rate-limited-429', 'rate-limited-429', 'rate-limited-429']);
-  const budget = { left: 2 };
+  const budget = memoryBudget(2);
   await assert.rejects(triage(MARCO, { ...KEY, fetch, budget }), (e: unknown) => e instanceof TriageError && e.code === 'budget_exhausted');
   assert.equal(calls.length, 2);
-  assert.equal(budget.left, 0);
+  assert.equal(budget.left(), 0);
 });
 
 test('missing key: clear error before any request', async () => {

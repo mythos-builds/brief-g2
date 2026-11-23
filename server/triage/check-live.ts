@@ -8,8 +8,8 @@
 // --injection adds the fixture injection mail as an 11th item (expected: no reply; 1 more request).
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { triage, TriageError, LIMITS } from './index.ts';
-import type { Attempt, Item, RequestBudget, TriageResult } from './index.ts';
+import { triage, TriageError, LIMITS, memoryBudget } from './index.ts';
+import type { Attempt, Item, ModelCooldown, TriageResult } from './index.ts';
 
 const MAX_REQUESTS = 20;
 const HERE = new URL('./', import.meta.url);
@@ -24,7 +24,8 @@ if (!process.env.OPENROUTER_API_KEY) {
   process.exit(2);
 }
 
-const datasetPath = arg('--dataset') ?? fileURLToPath(new URL('../../../demo/dataset.json', HERE));
+// Default = the app's own copy, inside the repo (D1 review, note 13).
+const datasetPath = arg('--dataset') ?? fileURLToPath(new URL('../../src/data/dataset.json', HERE));
 const data = JSON.parse(readFileSync(datasetPath, 'utf8')) as {
   personas: Record<string, { name?: string }>;
   mail: Array<Record<string, unknown>>;
@@ -53,7 +54,8 @@ const cacheArg = arg('--cache-dir');
 const cacheDir = cacheArg ? new URL(`${stamp}/`, `file://${cacheArg.replace(/\/?$/, '/')}`) : new URL(`./.cache/${stamp}/`, HERE);
 mkdirSync(cacheDir, { recursive: true });
 
-const budget: RequestBudget = { left: MAX_REQUESTS };
+const budget = memoryBudget(MAX_REQUESTS);
+const cooldown: ModelCooldown = new Map(); // a model that answered 429 is skipped for the rest of the run
 let failures = 0;
 const needCount = { mail: 0, tg: 0 };
 
@@ -65,15 +67,17 @@ for (const row of rows) {
   const onAttempt = (a: Attempt): void => {
     n += 1;
     const file = `${row.id}-${n}-${a.model.replace(/[^A-Za-z0-9.-]+/g, '_')}.json`;
-    writeFileSync(new URL(file, cacheDir), JSON.stringify({ id: row.id, model: a.model, status: a.status, ms: a.ms, outcome: a.outcome, reason: a.reason, raw: a.raw }, null, 2));
+    // The OpenRouter account id is never written, even to the local cache (D1 review, note 12).
+    const raw = (a.raw ?? '').replace(/"user_id"\s*:\s*"[^"]*"/g, '"user_id":"[removed]"');
+    writeFileSync(new URL(file, cacheDir), JSON.stringify({ id: row.id, model: a.model, status: a.status, ms: a.ms, outcome: a.outcome, reason: a.reason, raw }, null, 2));
   };
   const t0 = Date.now();
   let result: TriageResult | null = null;
   let note = '';
   try {
-    result = await triage(row.item, { budget, onAttempt });
+    result = await triage(row.item, { budget, cooldown, onAttempt, debugRaw: true });
   } catch (e) {
-    note = e instanceof TriageError ? `${e.code}: ${e.message}` : `error: ${(e as Error).message}`;
+    note = e instanceof TriageError ? e.message : "error (not a TriageError)";
   }
   const ms = Date.now() - t0;
   if (result === null) {
@@ -93,7 +97,7 @@ for (const row of rows) {
 }
 
 const total = needCount.mail + needCount.tg;
-const used = MAX_REQUESTS - budget.left;
+const used = MAX_REQUESTS - budget.left();
 console.log(`\nneed a reply: ${total} (${needCount.mail} mail + ${needCount.tg} TG), expected 3 (2 mail + 1 TG)`);
 console.log(`requests used: ${used} / cap ${MAX_REQUESTS} · limits: summary <= ${LIMITS.summaryWords} words, alt <= ${LIMITS.altChars} chars`);
 console.log(`raw answers: ${fileURLToPath(cacheDir)}`);

@@ -48,15 +48,23 @@ export interface Attempt {
   status: number | null;
   ms: number;
   outcome: AttemptOutcome;
+  /** Codes and numbers only (e.g. "HTTP 429", "alts[1] is 79 characters"): never model text, never an upstream body. */
   reason: string;
-  /** The raw response body text (for the .cache of check-live), never parsed by the caller. */
-  raw: string;
+  /** The raw response body, ONLY when opts.debugRaw is true (check-live's local cache). A Worker never sets it. */
+  raw?: string;
 }
 
-/** Shared request counter: one object passed to many triage() calls caps a whole run. */
+/**
+ * Request budget (D1 review, finding 1): ASYNC, so a D1 row, a file or a memory counter can implement it.
+ * take() reserves ONE model request atomically and says whether it may be made; false = refused, no request.
+ * See budget.ts: memoryBudget(n) for one run, dailyBudget(store, limit) for a persistent daily cap.
+ */
 export interface RequestBudget {
-  left: number;
+  take(): Promise<boolean>;
 }
+
+/** Models put aside after a 429, shared across the calls of one run (D1 review, finding 7). model → epoch ms. */
+export type ModelCooldown = Map<string, number>;
 
 export type FetchLike = (input: string, init: {
   method: string;
@@ -80,6 +88,14 @@ export interface TriageOptions {
   budget?: RequestBudget;
   /** Called after every request, success or not. */
   onAttempt?: (attempt: Attempt) => void;
+  /** One total deadline for the whole call, all models together, ms (default 25000). */
+  deadlineMs?: number;
+  /** Shared across calls: a model that answered 429 is skipped until its time (>= 60 s, or the body's retry_after). */
+  cooldown?: ModelCooldown;
+  /** Clock, epoch ms (tests). Default Date.now. */
+  now?: () => number;
+  /** Keep each raw response body in Attempt.raw (check-live only). Never set in a Worker. */
+  debugRaw?: boolean;
   /** Worker-style env object (bindings); read before globalThis.process.env. */
   env?: Record<string, string | undefined>;
 }
@@ -91,14 +107,28 @@ export type TriageErrorCode =
   | 'budget_exhausted'
   | 'bad_provider';
 
-/** The only error triage() throws. It never carries a made-up result. */
+/**
+ * The only error triage() throws. It never carries a made-up result.
+ * D1 review, finding 4: `message` = the code, plus HTTP statuses and outcome codes only
+ * (e.g. "all_failed: 429 503 invalid"); never a raw answer, a model text, an account id or a V8 parse message.
+ * `attempts` never hold a raw body (raw is dropped here even when debugRaw was set).
+ */
+const HINT: Record<TriageErrorCode, string> = {
+  not_configured: 'MODEL_PROVIDER=claude is not configured yet (stub until 2026-11-27)',
+  missing_key: 'OPENROUTER_API_KEY is not set',
+  all_failed: 'every model failed',
+  budget_exhausted: 'request budget used up',
+  bad_provider: 'MODEL_PROVIDER must be "openrouter" or "claude"',
+};
+
 export class TriageError extends Error {
   code: TriageErrorCode;
   attempts: Attempt[];
-  constructor(code: TriageErrorCode, message: string, attempts: Attempt[] = []) {
-    super(message);
+  constructor(code: TriageErrorCode, attempts: Attempt[] = []) {
+    const codes = attempts.map((a) => (a.status !== null && a.status !== 200 ? String(a.status) : a.outcome));
+    super(`${code}: ${HINT[code]}${codes.length ? ` (${codes.join(' ')})` : ''}`);
     this.name = 'TriageError';
     this.code = code;
-    this.attempts = attempts;
+    this.attempts = attempts.map(({ raw: _raw, ...rest }) => rest);
   }
 }

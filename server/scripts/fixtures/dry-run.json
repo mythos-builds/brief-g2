@@ -1,0 +1,84 @@
+{
+  "_note": "Dry-run fixtures for scripts/seed-demo.ts. Answers RECORDED from the CEO live run of 2026-11-23 03:07 (triage/.cache), message.content only: no reasoning field, no response body, no account id. Ids follow buildItems (0-based). The live run 429s after the first one are not replayed: with the day-2 cooldown the seed no longer asks particle-1 again in the same run. One answer is hand-written and says so.",
+  "rows": {
+    "mail-0": [
+      {
+        "status": 429,
+        "recorded": "particle-ai/particle-1:free (body not kept)"
+      },
+      {
+        "status": 200,
+        "recorded": "baidu/ernie-5.5-flash-preview:free",
+        "content": "{\"needs_reply\": true, \"summary\": \"Cover Friday 6 am shift?\", \"draft\": \"Hi Marco, yes, I can cover the 6 am start on line 1 Friday.\", \"alts\": [\"Yes, I can cover the 6 am start on Friday.\", \"No, I cannot cover the 6 am start on Friday.\", \"I need to check before I can confirm.\", \"Can you tell me more about the shift?\"]}"
+      }
+    ],
+    "mail-1": [
+      {
+        "status": 200,
+        "recorded": "baidu/ernie-5.5-flash-preview:free",
+        "content": "{\"needs_reply\": true, \"summary\": \"Line 2 servo overload, visit requested\", \"draft\": \"Hi Priya, thanks for flagging this. I'll arrange for a technician to come by line 2 today before 6 to look at the infeed servo.\", \"alts\": [\"Yes, I'll send a technician over today.\", \"No, we can't get there today, sorry.\", \"I can arrange a visit tomorrow morning instead.\", \"What time today works best for the technician?\"]}"
+      },
+      {
+        "status": 200,
+        "recorded": "HAND-WRITTEN 2026-11-23 (the recorded draft above is 127 characters, over the day-2 limit of 110): same answer, shorter draft",
+        "content": "{\"needs_reply\":true,\"summary\":\"Line 2 servo overload, visit requested\",\"draft\":\"Hi Priya, thanks for flagging this. A technician will come by line 2 today to look at the infeed servo.\",\"alts\":[\"Yes, I'll send a technician over today.\",\"No, we can't get there today, sorry.\",\"I can arrange a visit tomorrow morning instead.\",\"What time today works best for the technician?\"]}"
+      }
+    ],
+    "mail-2": [
+      {
+        "status": 200,
+        "recorded": "particle-ai/particle-1:free",
+        "content": "{\"needs_reply\": false, \"summary\": \"Order S-5521 shipped, arriving Wednesday\", \"draft\": \"\", \"alts\": []}"
+      }
+    ],
+    "mail-3": [
+      {
+        "status": 200,
+        "recorded": "particle-ai/particle-1:free",
+        "content": "{\"needs_reply\": false, \"summary\": \"Carton order delayed; ship Thursday\", \"draft\": \"\", \"alts\": []}"
+      }
+    ],
+    "mail-4": [
+      {
+        "status": 200,
+        "recorded": "baidu/ernie-5.5-flash-preview:free",
+        "content": "{\"needs_reply\": false, \"summary\": \"Automation Weekly newsletter issue 212\", \"draft\": \"\", \"alts\": []}"
+      }
+    ],
+    "mail-5": [
+      {
+        "status": 200,
+        "recorded": "particle-ai/particle-1:free",
+        "content": "{\"needs_reply\": false, \"summary\": \"Parcel out for delivery today\", \"draft\": \"\", \"alts\": []}"
+      }
+    ],
+    "mail-6": [
+      {
+        "status": 200,
+        "recorded": "particle-ai/particle-1:free",
+        "content": "{\"needs_reply\": false, \"summary\": \"Invoice INV-2207 payment confirmation\", \"draft\": \"\", \"alts\": []}"
+      }
+    ],
+    "tg-0": [
+      {
+        "status": 200,
+        "recorded": "baidu/ernie-5.5-flash-preview:free",
+        "content": "{\"needs_reply\": true, \"summary\": \"Truck early, gate 3 opening?\", \"draft\": \"Yes, opening gate 3 at 6:30 works.\", \"alts\": [\"Yes, 6:30 works for gate 3.\", \"No, please keep the original time.\", \"I need to check and will confirm later.\", \"Can we confirm the truck’s arrival time?\"]}"
+      }
+    ],
+    "tg-1": [
+      {
+        "status": 200,
+        "recorded": "baidu/ernie-5.5-flash-preview:free",
+        "content": "{\"needs_reply\": false, \"summary\": \"Spare prox sensor back at shop\", \"draft\": \"\", \"alts\": []}"
+      }
+    ],
+    "tg-2": [
+      {
+        "status": 200,
+        "recorded": "baidu/ernie-5.5-flash-preview:free",
+        "content": "{\"needs_reply\": false, \"summary\": \"Safety gloves half price today\", \"draft\": \"\", \"alts\": []}"
+      }
+    ]
+  }
+}

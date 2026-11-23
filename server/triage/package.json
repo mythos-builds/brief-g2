@@ -1,5 +1,8 @@
 {
   "type": "module",
-  "main": "./triage.test.ts",
-  "//": "Node 24 runs `node --test triage/` as ONE entry: the directory resolves to this main, so the brief's check command runs the test file. Code imports ./triage/index.ts by its full path."
+  "main": "./all.test.ts",
+  "module": "./index.ts",
+  "browser": "./index.ts",
+  "exports": { ".": "./index.ts" },
+  "//": "`node --test triage/` resolves this folder through \"main\" (one entry that loads every test file). Bundlers read \"exports\" / \"module\" / \"browser\" first, so an import of the folder gets index.ts, never the tests (D1 review, note 9)."
 }

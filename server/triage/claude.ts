@@ -6,8 +6,5 @@ import { TriageError } from './types.ts';
 import type { Item, TriageOptions, TriageResult } from './types.ts';
 
 export async function triageClaude(_item: Item, _opts: TriageOptions): Promise<TriageResult> {
-  throw new TriageError(
-    'not_configured',
-    'MODEL_PROVIDER=claude is not configured yet: the Claude provider is a stub until 2026-11-27 (see the claude-api docs). Use MODEL_PROVIDER=openrouter.',
-  );
+  throw new TriageError('not_configured');
 }
