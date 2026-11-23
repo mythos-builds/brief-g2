@@ -1,9 +1,11 @@
-// /api/* (contract BRIEF-D2 § 3, points 1 to 5). Nothing is ever sent on day 2, in any mode.
+// /api/* (contract BRIEF-D2 § 3, points 1 to 5; BRIEF-D3 § 3.1 to 3.4). Nothing is ever sent, in any mode.
 import { newToken, sha256hex, TOKEN_RE } from './crypto.ts'
 import type { Deps, Env } from './env.ts'
 import { error, json, readBodyCapped, readJsonObject } from './http.ts'
-import { DEMO_ITEMS, findItem, ID_RE } from './items.ts'
+import { DEMO_ITEMS, findItem, ID_RE, type Item } from './items.ts'
 import { addressKey, dayKey, endOfDay, hit, HOUR, purge } from './limits.ts'
+import { grantState, markPairedHandled, pairedCalendar, pairedItem, pairedItems } from './paired.ts'
+import { DEMO_CALENDAR } from './personas.ts'
 
 export const DEMO_TTL = 7200
 export const PAIRED_TTL = 604_800
@@ -14,6 +16,7 @@ export interface Session {
   hash: string
   mode: 'demo' | 'paired'
   expiresAt: number
+  accountId: number | null
 }
 
 /** Creates a session row and returns the token (shown once, never stored: only its SHA-256). */
@@ -38,10 +41,10 @@ export async function authSession(request: Request, db: D1Database, now: number)
   if (!m || !TOKEN_RE.test(m[1]!)) return null
   const hash = await sha256hex(m[1]!)
   const row = await db
-    .prepare('SELECT mode, expires_at FROM sessions WHERE token_hash = ?1 AND expires_at > ?2')
+    .prepare('SELECT mode, expires_at, account_id FROM sessions WHERE token_hash = ?1 AND expires_at > ?2')
     .bind(hash, now)
-    .first<{ mode: 'demo' | 'paired'; expires_at: number }>()
-  return row ? { hash, mode: row.mode, expiresAt: row.expires_at } : null
+    .first<{ mode: 'demo' | 'paired'; expires_at: number; account_id: number | null }>()
+  return row ? { hash, mode: row.mode, expiresAt: row.expires_at, accountId: row.account_id } : null
 }
 
 function onlyKeys(o: Record<string, unknown>, keys: string[]): boolean {
@@ -115,15 +118,18 @@ export async function postPairClaim(request: Request, env: Env, deps: Deps): Pro
   return json({ session: token, mode: 'paired', expires_in: ttl })
 }
 
-// 3. GET /api/items
+// 3. GET /api/items. Paired (BRIEF-D3 § 3.2): this ACCOUNT's stored items; a dead grant → 403 signin_needed.
 export async function getItems(request: Request, env: Env, deps: Deps): Promise<Response> {
   const now = deps.now()
   const s = await authSession(request, env.DB, now)
   if (!s) return error('unauthorized')
+  if (s.mode === 'paired') {
+    if ((await grantState(env.DB, s.accountId)) !== 'ok') return error('signin_needed')
+    return json({ mode: 'paired', items: await pairedItems(env, s.accountId!) })
+  }
   if (!DEMO_ITEMS) return error('server_error')
   const done = await env.DB.prepare('SELECT item_id FROM handled WHERE token_hash = ?1').bind(s.hash).all<{ item_id: string }>()
   const handled = new Set(done.results.map((r) => r.item_id))
-  // day 2: a paired session gets the SAME demo items (reading the Gmail label is day 3)
   return json({ mode: s.mode, items: DEMO_ITEMS.filter((i) => !handled.has(i.id)) })
 }
 
@@ -144,8 +150,14 @@ export async function postSend(request: Request, env: Env, deps: Deps, id: strin
   const now = deps.now()
   const s = await authSession(request, env.DB, now)
   if (!s) return error('unauthorized')
-  if (!DEMO_ITEMS) return error('server_error')
-  const item = ID_RE.test(id) ? findItem(DEMO_ITEMS, id) : undefined
+  let item: Item | undefined
+  if (s.mode === 'paired') {
+    // the account's stored item (BRIEF-D3 § 3.3); « handled » is recorded for the account below
+    item = ID_RE.test(id) && s.accountId !== null ? (await pairedItem(env, s.accountId, id))?.item : undefined
+  } else {
+    if (!DEMO_ITEMS) return error('server_error')
+    item = ID_RE.test(id) ? findItem(DEMO_ITEMS, id) : undefined
+  }
   if (!item) return error('not_found')
   const addr = await addressKey(request)
   const refused = await hit(env.DB, now, [
@@ -161,8 +173,12 @@ export async function postSend(request: Request, env: Env, deps: Deps, id: strin
   if (typeof c !== 'number' || !Number.isInteger(c) || c < 0 || c > 4) return error('bad_request')
   const text = c === 0 ? item.draft : item.alts[c - 1]
   if (typeof text !== 'string' || text.trim() === '') return error('bad_request')
-  if (!(await markHandled(env.DB, s, item.id, 'send', c))) return error('already_handled')
-  // day 2: nothing leaves (the real send to our own aliases is day 4)
+  const marked =
+    s.mode === 'paired'
+      ? await markPairedHandled(env.DB, s.accountId!, item.id, 'send', c, now)
+      : await markHandled(env.DB, s, item.id, 'send', c)
+  if (!marked) return error('already_handled')
+  // nothing leaves, in any mode (the real send to our own aliases is day 4)
   return json({ sent: true, real: false })
 }
 
@@ -171,11 +187,35 @@ export async function postSkip(request: Request, env: Env, deps: Deps, id: strin
   const now = deps.now()
   const s = await authSession(request, env.DB, now)
   if (!s) return error('unauthorized')
-  if (!DEMO_ITEMS) return error('server_error')
-  const item = ID_RE.test(id) ? findItem(DEMO_ITEMS, id) : undefined
+  let item: Item | undefined
+  if (s.mode === 'paired') {
+    item = ID_RE.test(id) && s.accountId !== null ? (await pairedItem(env, s.accountId, id))?.item : undefined
+  } else {
+    if (!DEMO_ITEMS) return error('server_error')
+    item = ID_RE.test(id) ? findItem(DEMO_ITEMS, id) : undefined
+  }
   if (!item) return error('not_found')
   const raw = await readBodyCapped(request, BODY_MAX)
   if (!raw || raw.byteLength !== 0) return error('bad_request')
-  if (!(await markHandled(env.DB, s, item.id, 'skip', null))) return error('already_handled')
+  const marked =
+    s.mode === 'paired'
+      ? await markPairedHandled(env.DB, s.accountId!, item.id, 'skip', null, now)
+      : await markHandled(env.DB, s, item.id, 'skip', null)
+  if (!marked) return error('already_handled')
   return json({ skipped: true })
+}
+
+// 6. GET /api/calendar (BRIEF-D3 § 3.4). Demo: the frozen file. Paired: the account's stored rows; dead grant → 403.
+export async function getCalendar(request: Request, env: Env, deps: Deps): Promise<Response> {
+  const now = deps.now()
+  const s = await authSession(request, env.DB, now)
+  if (!s) return error('unauthorized')
+  if (s.mode === 'paired') {
+    if ((await grantState(env.DB, s.accountId)) !== 'ok') return error('signin_needed')
+    const cal = await pairedCalendar(env, s.accountId!, now)
+    return json({ mode: 'paired', now: cal.now, events: cal.events })
+  }
+  if (!DEMO_CALENDAR) return error('server_error')
+  const events = DEMO_CALENDAR.events.filter((e) => e.start > DEMO_CALENDAR!.now).slice(0, 5)
+  return json({ mode: 'demo', now: DEMO_CALENDAR.now, events })
 }

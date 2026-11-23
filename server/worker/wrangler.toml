@@ -29,6 +29,19 @@ migrations_dir = "migrations"
 ENV = "production"
 # Must match an authorized redirect URI of the Google OAuth client exactly.
 OAUTH_REDIRECT_URI = "https://brief.appfinishers.com/oauth/callback"
+# Day 3 (BRIEF-D3 § 3.9). The ONE Gmail label the sync reads; the zone of every "HH:MM"; the daily cap of model
+# requests (per UTC day, triage and briefs together); the model provider ("openrouter" or "claude").
+DEMO_LABEL = "brief-demo"
+DISPLAY_TZ = "America/Toronto"
+TRIAGE_DAILY_CAP = "30"
+MODEL_PROVIDER = "openrouter"
+# GOOGLE_TOKEN_URL, GOOGLE_REVOKE_URL, GMAIL_BASE, CALENDAR_BASE, MODEL_BASE: dev only (.dev.vars), ignored unless
+# ENV is "dev". Never set them here.
+
+# The sync runs every 2 minutes from the `scheduled` handler (src/index.ts), never from a route.
+[triggers]
+crons = ["*/2 * * * *"]
 
 # Secrets (never in this file, never typed: piped from a file, README step 3):
 #   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TOKEN_KEY (base64 of 32 random bytes), ALLOWED_ACCOUNTS (comma-separated)
+#   Day 3: OPENROUTER_API_KEY (later ANTHROPIC_API_KEY). Absent = the sync triages nothing; every route still works.

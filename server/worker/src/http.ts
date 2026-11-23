@@ -4,6 +4,7 @@ export type ErrorCode =
   | 'bad_request'
   | 'unauthorized'
   | 'not_open'
+  | 'signin_needed'
   | 'not_found'
   | 'already_handled'
   | 'rate_limited'
@@ -14,6 +15,7 @@ export const STATUS: Record<ErrorCode, number> = {
   bad_request: 400,
   unauthorized: 401,
   not_open: 403,
+  signin_needed: 403,
   not_found: 404,
   already_handled: 409,
   rate_limited: 429,

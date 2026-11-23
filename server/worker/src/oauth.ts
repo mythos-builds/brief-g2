@@ -3,6 +3,7 @@
 import { CODE_TTL } from './api.ts'
 import { newPairCode, newToken, seal, sha256hex, tokenKey, TOKEN_RE } from './crypto.ts'
 import { type Deps, type Env, requireConfig } from './env.ts'
+import { revokeToken, upstreams } from './google.ts'
 import { addressKey, hit, HOUR, purge } from './limits.ts'
 import { badRequestPage, codePage, notOpenPage, tooManyPage } from './pages.ts'
 
@@ -100,7 +101,8 @@ export async function oauthCallback(request: Request, env: Env, deps: Deps): Pro
   const code = url.searchParams.get('code')
   if (url.searchParams.has('error') || !code || code.length > 2048) return badRequestPage()
 
-  const res = await deps.fetch(TOKEN_ENDPOINT, {
+  const up = upstreams(env) // the real token endpoint, except the dev fake when ENV is "dev"
+  const res = await deps.fetch(up.tokenUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -125,21 +127,29 @@ export async function oauthCallback(request: Request, env: Env, deps: Deps): Pro
   if (!issOk || claims.aud !== env.GOOGLE_CLIENT_ID || !expOk) throw new UpstreamError('id_token claims')
   const email = typeof claims.email === 'string' ? claims.email.trim().toLowerCase() : ''
 
-  // the allow-list is checked BEFORE anything is stored; any other account's tokens are dropped here, unread
-  if (!email || claims.email_verified !== true || !allowedAccounts(env).has(email)) return notOpenPage()
+  // the allow-list is checked BEFORE anything is stored; any other account's tokens are never stored, and its grant is
+  // REVOKED at Google (D2 review, note 8): one request to the revoke endpoint, best effort, never logged
+  if (!email || claims.email_verified !== true || !allowedAccounts(env).has(email)) {
+    const grant = typeof tok.refresh_token === 'string' && tok.refresh_token ? tok.refresh_token : tok.access_token
+    if (typeof grant === 'string' && grant !== '') await revokeToken(deps, up, grant)
+    return notOpenPage()
+  }
 
   const refresh = tok.refresh_token
   if (typeof refresh !== 'string' || refresh.length === 0) throw new UpstreamError('no refresh_token')
   const scope = typeof tok.scope === 'string' ? tok.scope.slice(0, 1000) : ''
   const emailHash = await sha256hex(`email:${email}`)
+  // what the Gmail parser compares senders with (BRIEF-D3 § 3.6): SHA-256 of the lower-cased address, no prefix
+  const selfHash = await sha256hex(email)
   const sealed = await seal(await tokenKey(env.TOKEN_KEY!), refresh, emailHash)
   const account = await env.DB.prepare(
-    `INSERT INTO accounts (email_hash, refresh_iv, refresh_ct, scope, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?5)
-     ON CONFLICT (email_hash) DO UPDATE SET refresh_iv = ?2, refresh_ct = ?3, scope = ?4, updated_at = ?5
+    `INSERT INTO accounts (email_hash, refresh_iv, refresh_ct, scope, created_at, updated_at, self_hash, needs_signin)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, 0)
+     ON CONFLICT (email_hash) DO UPDATE SET refresh_iv = ?2, refresh_ct = ?3, scope = ?4, updated_at = ?5,
+       self_hash = ?6, needs_signin = 0, access_iv = NULL, access_ct = NULL, access_expires_at = NULL, label_id = NULL
      RETURNING id`,
   )
-    .bind(emailHash, sealed.iv, sealed.ct, scope, now)
+    .bind(emailHash, sealed.iv, sealed.ct, scope, now, selfHash)
     .first<{ id: number }>()
   if (!account) throw new Error('account upsert returned nothing')
 

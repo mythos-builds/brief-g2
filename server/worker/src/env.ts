@@ -11,6 +11,21 @@ export interface Env {
   TOKEN_KEY?: string
   /** Comma-separated e-mail addresses allowed to finish the Google sign-in. */
   ALLOWED_ACCOUNTS?: string
+  /** Day 3 (BRIEF-D3 § 3.9): the ONE Gmail label read, the display time zone, the daily cap of model requests. */
+  DEMO_LABEL?: string
+  DISPLAY_TZ?: string
+  TRIAGE_DAILY_CAP?: string
+  MODEL_PROVIDER?: string
+  CLAUDE_MODEL?: string
+  /** Model keys (secrets). Absent = the sync triages nothing and logs the NAME; every route keeps working. */
+  OPENROUTER_API_KEY?: string
+  ANTHROPIC_API_KEY?: string
+  /** Dev-only base addresses (BRIEF-D3 § 3.8): read ONLY when ENV is "dev" (google.ts upstreams()). */
+  GOOGLE_TOKEN_URL?: string
+  GOOGLE_REVOKE_URL?: string
+  GMAIL_BASE?: string
+  CALENDAR_BASE?: string
+  MODEL_BASE?: string
 }
 
 /** What the Worker reaches outside itself. Tests pass a stub; production wraps the global fetch (bound, finding 10). */

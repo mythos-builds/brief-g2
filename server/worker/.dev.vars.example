@@ -1,7 +1,19 @@
 # Local `wrangler dev` only. Copy to .dev.vars (git-ignored) and keep these DUMMY values: they reach no real service.
+# Day 3: every upstream is job B's local fake (app/server/scripts/fake-upstreams.ts, 127.0.0.1:8799), which plays Google
+# and the model. The five base addresses below are read ONLY because ENV is "dev"; any other ENV ignores them.
 ENV="dev"
-GOOGLE_CLIENT_ID="dummy-client-id.apps.googleusercontent.com"
+# The fake's client id and account (its id_token says aud "dev-client-id", email "demo@example.com").
+GOOGLE_CLIENT_ID="dev-client-id"
 GOOGLE_CLIENT_SECRET="dummy-client-secret"
 # base64 of 32 bytes; this one is all zeros, a dummy
 TOKEN_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-ALLOWED_ACCOUNTS="demo-user@example.com"
+ALLOWED_ACCOUNTS="demo@example.com"
+# The local Worker's own callback (the fake never redirects; you call /oauth/callback yourself, README « Local run »).
+OAUTH_REDIRECT_URI="http://127.0.0.1:8787/oauth/callback"
+# A dummy model key: the fake ignores it, but the sync triages only when a key is set.
+OPENROUTER_API_KEY="dummy-model-key-not-real"
+GOOGLE_TOKEN_URL="http://127.0.0.1:8799/token"
+GOOGLE_REVOKE_URL="http://127.0.0.1:8799/revoke"
+GMAIL_BASE="http://127.0.0.1:8799"
+CALENDAR_BASE="http://127.0.0.1:8799"
+MODEL_BASE="http://127.0.0.1:8799"

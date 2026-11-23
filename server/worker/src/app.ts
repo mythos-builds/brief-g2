@@ -1,5 +1,5 @@
 // The router of the `brief` Worker: /app/* static app, /api/* JSON, /connect + /oauth/* sign-in pages, /healthz (BRIEF-D2 § 3).
-import { getItems, postPairClaim, postSend, postSession, postSkip } from './api.ts'
+import { getCalendar, getItems, postPairClaim, postSend, postSession, postSkip } from './api.ts'
 import { type Deps, type Env, MissingConfig } from './env.ts'
 import { error, json, log, withAppHeaders } from './http.ts'
 import { oauthCallback, oauthStart } from './oauth.ts'
@@ -24,6 +24,7 @@ function route(request: Request, env: Env, ctx: ExecutionContext, deps: Deps): R
     if (p === '/api/session' && m === 'POST') return r('api.session', () => postSession(request, env, deps, ctx))
     if (p === '/api/pair/claim' && m === 'POST') return r('api.pair.claim', () => postPairClaim(request, env, deps))
     if (p === '/api/items' && m === 'GET') return r('api.items', () => getItems(request, env, deps))
+    if (p === '/api/calendar' && m === 'GET') return r('api.calendar', () => getCalendar(request, env, deps))
     const im = /^\/api\/items\/([^/]+)\/(send|skip)$/.exec(p)
     if (im && m === 'POST') {
       const id = im[1]! // not decoded: ids are URL-safe (ID_RE), anything else is not_found

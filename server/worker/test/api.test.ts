@@ -218,7 +218,11 @@ describe('POST /api/pair/claim', () => {
   const claim = (code: unknown, ip = '203.0.113.20') =>
     call(req('/api/pair/claim', { method: 'POST', body: JSON.stringify({ code }), ip }))
 
-  it('turns a live code into a paired session (7 days) that gets the same demo items', async () => {
+  it('turns a live code into a paired session (7 days) that reads its own account (day 3: no demo items)', async () => {
+    await env.DB.prepare(
+      `INSERT INTO accounts (id, email_hash, refresh_iv, refresh_ct, scope, created_at, updated_at, self_hash)
+       VALUES (1, 'h', 'iv', 'ct', '', 0, 0, 'sh')`,
+    ).run()
     await insertCode('123456')
     const res = await claim('123456')
     expect(res.status).toBe(200)
@@ -227,7 +231,7 @@ describe('POST /api/pair/claim', () => {
     expect(body.mode).toBe('paired')
     expect(body.expires_in).toBe(604800)
     expect(body.session).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    expect(await (await call(req('/api/items', { token: body.session }))).json()).toEqual({ mode: 'paired', items: file.items })
+    expect(await (await call(req('/api/items', { token: body.session }))).json()).toEqual({ mode: 'paired', items: [] })
   })
 
   it('gives the same 404 for a wrong, a used and an expired code', async () => {

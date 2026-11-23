@@ -1,4 +1,5 @@
 {
+  "//": "Day 3: the Worker imports the triage layer (../triage), which is written and checked under app/server/tsconfig.json without noUncheckedIndexedAccess; tsc checks every imported file with ONE option set, so that flag is off here too (owner of ../triage: job B).",
   "compilerOptions": {
     "target": "es2024",
     "lib": ["es2024"],
@@ -6,7 +7,6 @@
     "moduleResolution": "bundler",
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"],
     "strict": true,
-    "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
     "noImplicitOverride": true,
     "isolatedModules": true,
