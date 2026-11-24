@@ -8,3 +8,6 @@ export const realModules: SyncModules = { fromGmail, meetingBrief, validBrief }
 
 /** The stored-brief check the calendar route applies before serving (the same one the sync used). */
 export { validBrief }
+
+/** Day 5 (BRIEF-D5 § 3.4): the rewrite of « Speak a change » and the check of a spoken draft (job B's). */
+export { checkSpoken, spokenChange } from '../../triage/spoken.ts'

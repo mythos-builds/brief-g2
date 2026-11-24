@@ -8,11 +8,13 @@ One Worker, `brief`, on `https://brief.appfinishers.com`:
 | `/api/session`, `/api/items`, `/api/items/<id>/send`, `/api/items/<id>/skip`, `/api/pair/claim` | JSON, contract in `../../../BRIEF-D2.md` § 3 and `../../../BRIEF-D3.md` § 3 |
 | `/api/calendar` | JSON, `BRIEF-D3.md` § 3.4: `{"mode","now","events":[{start,title,who,brief?}]}` |
 | `/api/session/logout` | day 4, `BRIEF-D4.md` § 3.8: Bearer, empty body → `{"ok":true}`, the session row is deleted |
+| `/api/items/<id>/speak?base=<n>` | day 5, `BRIEF-D5.md` § 3.2: raw 16 kHz s16le mono samples (0.4 to 10 s) → `{"draft","rev"}`, a spoken change of the reply, STORED only (it never sends) |
 | cron `*/2 * * * *` | the `scheduled` handler: the sync of the label `DEMO_LABEL` and the `primary` calendar (`BRIEF-D3.md` § 3.5) |
 | `/connect`, `/oauth/start`, `/oauth/callback` | the Google sign-in pages → a 6-digit pairing code |
 | `/healthz` | `{"ok":true}` |
 
-State: ONE D1 database (`DB`), schema in `migrations/0001_init.sql` + `0002_sync.sql` + `0003_send.sql`. No KV, no
+State: ONE D1 database (`DB`), schema in `migrations/0001_init.sql` + `0002_sync.sql` + `0003_send.sql` +
+`0004_spoken.sql`. No KV, no
 Durable Object. Demo sessions: `src/demo-items.json` and `src/demo-calendar.json`, frozen, no model and no Google
 call, nothing sent (`send` answers `{"sent":true,"real":false}`). Paired sessions: what the sync stored for their
 ACCOUNT; the routes read D1. Day 4: ONE route writes to Google, `POST /api/items/<id>/send` in paired mode when the
@@ -37,6 +39,13 @@ computed from Gmail's copy of that mail, never from the request (`BRIEF-D4.md` �
   finished text; the claim, the three Google calls, the outcome) · `src/paired.ts` `accountGate()` (check b of § 3.2
   for every paired route: today's `ALLOWED_ACCOUNTS`, a live grant, the `gmail.send` scope for send and skip when
   `REAL_SEND` is on) · `migrations/0003_send.sql` (`messages.send_state`, `messages.sent_id`).
+- Day 5: `src/voice.ts` (`wavOf()`, the 44-byte WAV header; the speech call; the units of the day; the two `ai`
+  clients, `aiOf()`; the stored spoken draft) · `src/speak.ts` (the speak route, checks a to k of § 3.2) · the sixth
+  choice of the send in `src/api.ts` (`{"choice":5,"rev"}`) · `src/wiring.ts` also imports job B's `spokenChange`
+  and `checkSpoken` · `migrations/0004_spoken.sql` · `wrangler.local.toml` (= `wrangler.toml` without its `[ai]`
+  block, for tests and local runs: with that block `vitest` and `wrangler dev` refuse to start without a Cloudflare
+  login). Tests: `test/d5-speak.test.ts`, `test/d5-send.test.ts`, `test/d5-config.test.ts` (Workers AI is a scripted
+  fake injected as `deps.ai`; no test ever calls `env.AI`).
 - `test/`: vitest in local workerd + local D1 (`@cloudflare/vitest-plugin`). Google is a stubbed `fetch`; any real
   `fetch` in a test throws. Day 4: `test/send.test.ts` (the send route), `test/reply.test.ts` (`buildReply`),
   `test/d4.test.ts` (allow-list, skip, logout), `test/limits-d4.test.ts` (a worst-case sync run, counted).
@@ -44,10 +53,12 @@ computed from Gmail's copy of that mail, never from the request (`BRIEF-D4.md` �
 ## Checks
 ```sh
 cd app/server/worker
-npm test                      # vitest run
+npm test                      # vitest run (on wrangler.local.toml: no [ai] block, no login needed)
 npm run typecheck             # tsc --noEmit
 npx wrangler deploy --dry-run # bundles, lists the bindings, uploads nothing (needs app/dist: npm run build in app/)
 ```
+The dry run reads `wrangler.toml` and lists `env.AI` (AI), `env.VOICE ("on")` and `env.VOICE_DAILY_NEURONS ("3000")`
+(seen 2026-11-23 with no Cloudflare login).
 
 ## Deploy (the CEO only; each secret piped from a file, never typed, never echoed)
 Run from `app/server/worker`, with the Cloudflare API token in the environment (`CLOUDFLARE_API_TOKEN`).
@@ -111,13 +122,40 @@ Run from `app/server/worker`, with the Cloudflare API token in the environment (
    `{"route":"api.items.send","step":"outcome","outcome":…,"calls":n,"at":…,"status":…}`, codes only.
    An `unknown` (`504 send_unknown`) means « it may have left »: look in Gmail's Sent folder, never press again.
 
+## Day 5 deploy (the CEO only, after the day-4 steps above are live)
+1. Migration first (the new code reads and writes the new columns and table): `npx wrangler d1 migrations apply brief
+   --remote` → applies `0004_spoken.sql` only (`messages.spoken_draft`, `messages.spoken_at`, the table `spoken` and
+   its index on `expires_at`). `0001` to `0003` are never edited.
+2. The binding and the vars are in `wrangler.toml`: `[ai]` `binding = "AI"` (Workers AI through the binding: no key,
+   no secret), `VOICE = "on"`, `VOICE_DAILY_NEURONS = "3000"`. `npx wrangler deploy --dry-run` must list `env.AI`,
+   `env.VOICE ("on")` and `env.VOICE_DAILY_NEURONS ("3000")`; then `npx wrangler deploy` in its own command, with
+   `wrangler.toml` (NEVER `--config wrangler.local.toml` for a deploy: that file has no `[ai]` block, and every speak
+   would answer 502 `voice_failed`, logged `at: "config"`).
+3. Turning the voice OFF without a code change: `npx wrangler deploy --var VOICE:off` (any value but exactly `"on"` is
+   off) → the speak route answers 404 to everyone and `GET /api/items` says `"voice":false` (the app hides
+   « Speak a change »). Back ON: a plain `npx wrangler deploy` (the file's `"on"` wins). Check in the deploy output:
+   `env.VOICE ("off")` / `("on")`. Lowering the daily budget the same way: `--var VOICE_DAILY_NEURONS:1000`.
+4. What a spoken change leaves behind: paired = `messages.spoken_draft` (the CHECKED draft) and `spoken_at` on the
+   message row; demo = one `spoken` row per session and item, deleted with the session (logout, purge). The day's
+   units: the counter `voice:<UTC date>` (`SELECT count FROM counters WHERE key = 'voice:2026-11-24'`). Never the
+   clip, never what was heard. Logs: one line per request,
+   `{"route":"api.items.speak","outcome":"draft|not_heard|failed|refused","at":<step>,"seconds","ms_stt","ms_llm","tries","neurons"}`
+   (plus the router's usual `{"route","status"}` line).
+5. The send's sixth choice: `{"choice":5,"rev":"<8 hex>"}` sends the stored spoken draft only when `rev` is its hash
+   (the one the glasses showed) and it still passes `checkSpoken`; otherwise 409 `stale_draft`, before `REAL_SEND`
+   is looked at and before any claim. Everything else of the day-4 send is unchanged.
+
 ## Local run (dummies only, nothing leaves 127.0.0.1)
 1. `cp .dev.vars.example .dev.vars` (git-ignored): `ENV="dev"`, the dev client id `dev-client-id`, the dev account
    `demo@example.com`, a dummy model key, the five base addresses pointing at job B's fake on port 8799, and
    `REAL_SEND="on"` (in dev every Google call goes to the fake, so a « real » send lands in the fake's `/_sent`).
 2. Terminal 1, the fake of Google and the model: `cd app/server && node scripts/fake-upstreams.ts --port 8799`.
-3. Terminal 2, the Worker with the cron exposed: `npx wrangler d1 migrations apply brief --local`, then
-   `npx wrangler dev --ip 127.0.0.1 --test-scheduled` → `http://127.0.0.1:8787` (CORS for `http://127.0.0.1:5173` only).
+3. Terminal 2, the Worker with the cron exposed, on the LOCAL config (day 5: `wrangler.toml` has an `[ai]` block, and
+   with it `wrangler dev` refuses to start without a Cloudflare login, seen 2026-11-23: « Failed to start the remote
+   proxy session … it's necessary to set a CLOUDFLARE_API_TOKEN »):
+   `npx wrangler d1 migrations apply brief --local --config wrangler.local.toml`, then
+   `npx wrangler dev --config wrangler.local.toml --ip 127.0.0.1 --test-scheduled` (= `npm run dev -- --test-scheduled`)
+   → `http://127.0.0.1:8787` (CORS for `http://127.0.0.1:5173` only).
 4. Sign in against the fake: `curl -si http://127.0.0.1:8787/oauth/start` → copy `state` from the `location` header →
    `curl -s "http://127.0.0.1:8787/oauth/callback?state=<state>&code=dev"` → the page shows a 6-digit code (the fake's
    token endpoint answers for `demo@example.com`, in `ALLOWED_ACCOUNTS` of `.dev.vars`).
@@ -141,7 +179,20 @@ Run from `app/server/worker`, with the Cloudflare API token in the environment (
    send answers `"real":false` and `/_sent` does not grow.
 8. Logout: `curl -s -X POST http://127.0.0.1:8787/api/session/logout -H "Authorization: Bearer <session>"` →
    `{"ok":true}`; the same token on `GET /api/items` → 401.
-9. Stop both (Ctrl-C). The code `dead` at step 4 gives a refresh token the fake refuses (`invalid_grant`): the next
+9. « Speak a change » (day 5) against the fake's Workers AI (`AI_BASE`, `VOICE="on"` in `.dev.vars`). A 3-second
+   clip made by one command (a 440 Hz tone, raw 16 kHz s16le mono, no header; it is not committed):
+   `python3 -c 'import math,struct,sys; sys.stdout.buffer.write(b"".join(struct.pack("<h",int(8000*math.sin(2*math.pi*440*i/16000))) for i in range(48000)))' > /tmp/clip.raw`
+   then `curl -s -X POST --data-binary @/tmp/clip.raw -H 'Content-Type: application/octet-stream'
+   -H "Authorization: Bearer <session>" "http://127.0.0.1:8787/api/items/<id>/speak?base=0"` →
+   `{"draft":"Thursday at two works for me instead. Thanks for the update.","rev":"5ffe7891"}` (seen 2026-11-23, demo
+   item `mail-0`); `?base=5` rewrites that stored draft again; `curl -s http://127.0.0.1:8799/_voice` →
+   `[{"bytes":96044,"seconds":3}]` (sizes only). Send it: `-d '{"choice":5,"rev":"<rev>"}'` on `…/send` (paired + 
+   `REAL_SEND="on"`: `/_sent` holds that draft then the signature; demo: `"real":false`). The fake's modes:
+   `-d '{"stt":"silence"}'` → 422 `not_heard` · `{"stt":"500"}` or `"hang"` → 502 `voice_failed` · `{"llm":"long"}` →
+   502 · `{"llm":"long-once"}` → a draft, `/_seen` shows two rewrite calls. `VOICE="off"` in `.dev.vars` (restart) →
+   the speak route answers 404 and `GET /api/items` says `"voice":false`.
+10. Stop both (Ctrl-C), then `rm .dev.vars`: a `.dev.vars` left behind is read by the next local run (the tests pin
+    their vars in `vitest.config.ts`, so they are not affected). The code `dead` at step 4 gives a refresh token the fake refuses (`invalid_grant`): the next
    sync marks the account and every paired route answers 403 `signin_needed` until a new sign-in.
 
 ## Security choices
@@ -220,6 +271,21 @@ Run from `app/server/worker`, with the Cloudflare API token in the environment (
   read 1 afterwards, so `changes()` carries from the claim to the count inside a D1 batch in production too (D4
   review, note 4). With `REAL_SEND` back to `"off"` the same route answered `"real":false` and Gmail's Sent folder
   did not grow.
+- « Speak a change » (day 5): the glasses' clip (raw samples, 10 s at most) goes to this Worker, which wraps it in a
+  WAV and sends it to Cloudflare Workers AI (`@cf/openai/whisper-large-v3-turbo`, through the `[ai]` binding); what
+  was heard goes, with the sender's first name, the six-word summary and the reply on screen (never the mail's body,
+  subject or an address), to `@cf/meta/llama-3.3-70b-instruct-fp8-fast`. Neither the clip nor what was heard is
+  stored or logged here; only the checked draft is stored (paired: on the message row, kept with it; demo: until the
+  session ends). Cloudflare's own retention of inputs is theirs (`../../../reports/D5-voice-facts.md` § 2).
+- Voice caps: a clip of 0.4 to 10 s · 12 clips per session per hour · 30 per address per hour and 40 per address per
+  UTC day (all sessions; without the daily one a single address could use up the shared budget in a few hours) · the
+  day's budget `VOICE_DAILY_NEURONS` (3000 Workers AI units, all users together; the free allowance is 10,000) is
+  checked BEFORE the calls and counted AFTER each one, so one request in flight can pass it by its own units (about 13
+  for a clip and a rewrite, 23 with a retry): the budget is a soft ceiling, far under the allowance.
+- What only the user's eyes stop: the rewrite's answer passes `checkSpoken` (two lines, 110 characters, no link or
+  markup, a final stop), but nothing checks that it says what the user said: a wrong hour or a new promise in a
+  well-formed sentence is stored as the draft. The glasses show it before `Send now`, and choice 5 sends only the
+  draft whose `rev` the glasses showed.
 - A typing mistake in `ALLOWED_ACCOUNTS` answers 401 to the paired app, and the app forgets a session that gets a
   401: once the secret is corrected, the owner signs in at `/connect` again for a new code (the sync and the routes
   keep the stored grant; the sign-in callback, day 2, still revokes the grant of an account that is not on the list).

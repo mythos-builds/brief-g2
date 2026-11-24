@@ -21,3 +21,9 @@ MODEL_BASE="http://127.0.0.1:8799"
 # wrangler.toml keeps "off" for production; any value but exactly "on" is off.
 REAL_SEND="on"
 SEND_DAILY_CAP="20"
+# Day 5: « Speak a change ». Workers AI = the same fake (its /ai/run/<model> paths), read ONLY because ENV is "dev": a dev
+# Worker never uses the [ai] binding (it always reaches the live service; wrangler.local.toml has no such block).
+# VOICE: exactly "on" = offered; anything else = off (the speak route answers 404, the items answer says "voice":false).
+AI_BASE="http://127.0.0.1:8799"
+VOICE="on"
+VOICE_DAILY_NEURONS="3000"

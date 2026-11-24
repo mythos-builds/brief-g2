@@ -85,7 +85,7 @@ describe('GET /api/items', () => {
     const res = await call(req('/api/items', { token }))
     expect(res.status).toBe(200)
     expect(res.headers.get('cache-control')).toBe('no-store')
-    expect(await res.json()).toEqual({ mode: 'demo', items: file.items })
+    expect(await res.json()).toEqual({ mode: 'demo', items: file.items, voice: true })
   })
 
   it.each([
@@ -234,7 +234,7 @@ describe('POST /api/pair/claim', () => {
     expect(body.mode).toBe('paired')
     expect(body.expires_in).toBe(604800)
     expect(body.session).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    expect(await (await call(req('/api/items', { token: body.session }))).json()).toEqual({ mode: 'paired', items: [] })
+    expect(await (await call(req('/api/items', { token: body.session }))).json()).toEqual({ mode: 'paired', items: [], voice: true })
   })
 
   it('gives the same 404 for a wrong, a used and an expired code', async () => {

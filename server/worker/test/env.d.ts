@@ -7,6 +7,8 @@ declare global {
       TEST_MIGRATIONS: D1Migration[]
       ITEM_TYPES_SOURCE: string
       WORKER_README_SOURCE: string
+      WRANGLER_TOML_SOURCE: string
+      WRANGLER_LOCAL_TOML_SOURCE: string
     }
   }
 }

@@ -7,7 +7,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "dev": "wrangler dev --ip 127.0.0.1",
+    "dev": "wrangler dev --config wrangler.local.toml --ip 127.0.0.1",
     "build": "wrangler deploy --dry-run"
   },
   "devDependencies": {

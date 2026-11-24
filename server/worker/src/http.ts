@@ -12,6 +12,9 @@ export type ErrorCode =
   | 'server_error'
   | 'send_failed'
   | 'send_unknown'
+  | 'not_heard'
+  | 'voice_failed'
+  | 'stale_draft'
 
 export const STATUS: Record<ErrorCode, number> = {
   bad_request: 400,
@@ -26,6 +29,11 @@ export const STATUS: Record<ErrorCode, number> = {
   // BRIEF-D4 § 3.1: a definite failure (nothing left, the item is offered again) · an unknown outcome (it may have left)
   send_failed: 502,
   send_unknown: 504,
+  // BRIEF-D5 § 3.1: nothing heard (or a clip under 0.4 s) · speech to text or the rewrite failed · the spoken draft
+  // named by `base` or `rev` is not (or no longer) the stored one
+  not_heard: 422,
+  voice_failed: 502,
+  stale_draft: 409,
 }
 
 const COMMON = {

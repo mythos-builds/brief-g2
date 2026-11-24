@@ -17,6 +17,14 @@ run_worker_first = true
 html_handling = "none"
 not_found_handling = "none"
 
+# Day 5 (BRIEF-D5 § 3.8): Workers AI through the binding only (no key, no account token). It always reaches the LIVE
+# service, so no test calls it (tests inject deps.ai) and a dev Worker (ENV "dev") never uses it: it calls the local
+# fake at AI_BASE instead (.dev.vars). With this block, `vitest` and `wrangler dev` refuse to start without a
+# Cloudflare login (seen 2026-11-23: « it's necessary to set a CLOUDFLARE_API_TOKEN »), so local runs and tests use
+# wrangler.local.toml = this file without this block (test/d5-config.test.ts checks that it is the only difference).
+[ai]
+binding = "AI"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "brief"
@@ -40,8 +48,13 @@ MODEL_PROVIDER = "openrouter"
 REAL_SEND = "off"
 # Real sends per account per UTC day, counted when a send is claimed, never given back.
 SEND_DAILY_CAP = "20"
-# GOOGLE_TOKEN_URL, GOOGLE_REVOKE_URL, GMAIL_BASE, CALENDAR_BASE, MODEL_BASE: dev only (.dev.vars), ignored unless
-# ENV is "dev". Never set them here.
+# Day 5 (BRIEF-D5 § 3.8). « Speak a change » is offered only when VOICE is exactly "on" (anything else = off: the
+# speak route answers 404 and GET /api/items says "voice":false). VOICE_DAILY_NEURONS = the Workers AI units all users
+# together may use in one UTC day (the free allowance is 10,000 and must never be reached by this app).
+VOICE = "on"
+VOICE_DAILY_NEURONS = "3000"
+# GOOGLE_TOKEN_URL, GOOGLE_REVOKE_URL, GMAIL_BASE, CALENDAR_BASE, MODEL_BASE, AI_BASE: dev only (.dev.vars), ignored
+# unless ENV is "dev". Never set them here.
 
 # The sync runs every 2 minutes from the `scheduled` handler (src/index.ts), never from a route.
 [triggers]

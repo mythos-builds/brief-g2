@@ -84,7 +84,7 @@ describe('bundled placeholders (§ 3.6)', () => {
     expect(checkCalendarFile({ now: '12:41', events: [{ ...ok, brief: { why: 'a', last: 'b', facts: [] } }] })).not.toEqual([])
     expect(checkCalendarFile({ now: '12:41', events: [{ ...ok, extra: 1 }] })).not.toEqual([])
     expect(checkCalendarFile({ now: '12:41', events: Array(6).fill(ok) })).not.toEqual([])
-    const p = { key: 'x', name: 'X', fullName: 'X Y', address: 'x@real-company.com', company: 'C' }
+    const p = { key: 'x', name: 'X', fullName: 'X Y', address: 'x@real-company.invalid', company: 'C' } // not an example domain (a reserved name, nobody's)
     expect(checkPersonasFile({ personas: [p] })).not.toEqual([])
     expect(checkPersonasFile({ personas: [{ ...p, address: 'x@a.example.com', more: 1 }] })).not.toEqual([])
   })

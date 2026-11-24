@@ -7,7 +7,9 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig(async () => ({
   plugins: [
     cloudflareTest({
-      wrangler: { configPath: './wrangler.toml' },
+      // Day 5: wrangler.toml with its `[ai]` block makes the pool open a remote session (a Cloudflare login) before
+      // any test runs; the local config is the same file without that block (test/d5-config.test.ts).
+      wrangler: { configPath: './wrangler.local.toml' },
       miniflare: {
         // Test-only dummies, not secrets.
         bindings: {
@@ -23,6 +25,13 @@ export default defineConfig(async () => ({
           OAUTH_REDIRECT_URI: 'https://brief.appfinishers.com/oauth/callback',
           REAL_SEND: 'off',
           SEND_DAILY_CAP: '20',
+          // Day 5, pinned the same way (a `.dev.vars` with VOICE="off" or AI_BASE must not change a test).
+          VOICE: 'on',
+          VOICE_DAILY_NEURONS: '3000',
+          AI_BASE: '',
+          // Both configs, read here in Node, so test/d5-config.test.ts checks they differ by the `[ai]` block only.
+          WRANGLER_TOML_SOURCE: readFileSync(fileURLToPath(new URL('./wrangler.toml', import.meta.url)), 'utf8'),
+          WRANGLER_LOCAL_TOML_SOURCE: readFileSync(fileURLToPath(new URL('./wrangler.local.toml', import.meta.url)), 'utf8'),
           // The app's Item interface (read here, in Node) so test/items.test.ts checks the shape against it.
           ITEM_TYPES_SOURCE: readFileSync(fileURLToPath(new URL('../../src/logic/types.ts', import.meta.url)), 'utf8'),
           // The deploy steps (test/review-d2.test.ts checks the app build line, D2 review finding 2).

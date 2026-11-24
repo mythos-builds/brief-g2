@@ -8,6 +8,8 @@ import { addressKey, dayKey, endOfDay, hit, HOUR, purge } from './limits.ts'
 import { accountGate, markPairedHandled, pairedCalendar, pairedItem, pairedItems } from './paired.ts'
 import { DEMO_CALENDAR } from './personas.ts'
 import { claimSend, finishSend, realSendOn, releaseSend, sendReply } from './send.ts'
+import { type Owner, REV_RE, revOf, spokenDraft, voiceOn } from './voice.ts'
+import { checkSpoken } from './wiring.ts'
 
 export const DEMO_TTL = 7200
 export const PAIRED_TTL = 604_800
@@ -128,12 +130,13 @@ export async function getItems(request: Request, env: Env, deps: Deps): Promise<
   if (s.mode === 'paired') {
     const gate = await accountGate(env, s.accountId, false)
     if ('error' in gate) return error(gate.error)
-    return json({ mode: 'paired', items: await pairedItems(env, gate.account.id) })
+    return json({ mode: 'paired', items: await pairedItems(env, gate.account.id), voice: voiceOn(env) })
   }
   if (!DEMO_ITEMS) return error('server_error')
   const done = await env.DB.prepare('SELECT item_id FROM handled WHERE token_hash = ?1').bind(s.hash).all<{ item_id: string }>()
   const handled = new Set(done.results.map((r) => r.item_id))
-  return json({ mode: s.mode, items: DEMO_ITEMS.filter((i) => !handled.has(i.id)) })
+  // BRIEF-D5 § 3.7: ONE more top-level key, "voice" (true only when VOICE is exactly "on"); the items do not change
+  return json({ mode: s.mode, items: DEMO_ITEMS.filter((i) => !handled.has(i.id)), voice: voiceOn(env) })
 }
 
 /** Marks an item handled for this session in ONE conditional insert: the second of two racing requests gets 409. */
@@ -182,12 +185,26 @@ export async function postSend(request: Request, env: Env, deps: Deps, id: strin
     { key: `send:day:${dayKey(now)}`, max: 3000, windowEnd: endOfDay(now), code: 'daily_cap' },
   ])
   if (refused) return error(refused.code, refused.retryAfter)
-  // e. the body is {"choice":n} and nothing else: never a text, never an address
+  // e. the body is {"choice":n} (0 to 4) or {"choice":5,"rev":"<8 hex>"} and nothing else: never a text, never an
+  // address (BRIEF-D5 § 3.6)
   const body = await readJsonObject(request, BODY_MAX)
-  if (!body || !onlyKeys(body, ['choice'])) return error('bad_request')
+  if (!body) return error('bad_request')
   const c = body.choice
-  if (typeof c !== 'number' || !Number.isInteger(c) || c < 0 || c > 4) return error('bad_request')
-  const text = c === 0 ? item.draft : item.alts[c - 1]
+  let text: string | undefined
+  if (c === 5) {
+    if (!onlyKeys(body, ['choice', 'rev']) || typeof body.rev !== 'string' || !REV_RE.test(body.rev)) return error('bad_request')
+    // the stored spoken draft (paired: the row's; demo: this session's), only when it is the one the user saw (its
+    // rev) and it still passes today's check as it is; else 409, before the REAL_SEND test and before any claim
+    const owner: Owner = accountId === null ? { kind: 'demo', tokenHash: s.hash, expiresAt: s.expiresAt } : { kind: 'paired', accountId }
+    const stored = await spokenDraft(env.DB, owner, item.id, now)
+    const checked = stored === null ? null : checkSpoken(stored)
+    if (stored === null || !checked?.ok || checked.draft !== stored || (await revOf(stored)) !== body.rev) return error('stale_draft')
+    text = stored
+  } else {
+    if (!onlyKeys(body, ['choice'])) return error('bad_request')
+    if (typeof c !== 'number' || !Number.isInteger(c) || c < 0 || c > 4) return error('bad_request')
+    text = c === 0 ? item.draft : item.alts[c - 1]
+  }
   if (typeof text !== 'string' || text.trim() === '') return error('bad_request')
   if (accountId === null || !account || 'error' in account) {
     // demo: unchanged, nothing leaves
@@ -284,8 +301,12 @@ export async function postLogout(request: Request, env: Env, deps: Deps): Promis
   if (!s) return error('unauthorized')
   const raw = await readBodyCapped(request, BODY_MAX)
   if (!raw || raw.byteLength !== 0) return error('bad_request')
-  // ONE conditional delete: of two logouts at the same moment, one gets 200, the other 401
-  const gone = await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?1 RETURNING 1 AS ok').bind(s.hash).first()
-  if (!gone) return error('unauthorized')
+  // ONE conditional delete: of two logouts at the same moment, one gets 200, the other 401. Day 5: the session's
+  // spoken drafts go in the same transaction (BRIEF-D5 § 3.5).
+  const [gone] = await env.DB.batch([
+    env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?1 RETURNING 1 AS ok').bind(s.hash),
+    env.DB.prepare('DELETE FROM spoken WHERE token_hash = ?1').bind(s.hash),
+  ])
+  if (!gone?.results?.length) return error('unauthorized')
   return json({ ok: true })
 }

@@ -1,4 +1,6 @@
 // The Worker's bindings, vars and secrets (wrangler.toml). Secrets are read from here only, never logged.
+import type { AiRun } from '../../triage/spoken.ts'
+
 export interface Env {
   DB: D1Database
   ASSETS: Fetcher
@@ -30,6 +32,17 @@ export interface Env {
   REAL_SEND?: string
   /** Real sends per account per UTC day (default "20"), counted when a send is claimed, never given back. */
   SEND_DAILY_CAP?: string
+  /**
+   * Day 5 (BRIEF-D5 § 3.8): the `[ai]` binding (Workers AI). It always reaches the LIVE service: only index.ts reads
+   * it (voice.ts aiOf), no test ever calls it, and a dev Worker never uses it.
+   */
+  AI?: { run(model: string, input: Record<string, unknown>): Promise<unknown> }
+  /** Dev-only (.dev.vars): job B's local fake of Workers AI, read ONLY when ENV is "dev". */
+  AI_BASE?: string
+  /** « Speak a change » is offered only when this is exactly "on". */
+  VOICE?: string
+  /** The Workers AI units all users together may use in one UTC day (default "3000"). */
+  VOICE_DAILY_NEURONS?: string
 }
 
 /** What the Worker reaches outside itself. Tests pass a stub; production wraps the global fetch (bound, finding 10). */
@@ -38,6 +51,14 @@ export interface Deps {
   now: () => number // Unix seconds
   /** The time limit of each Google call of a send (BRIEF-D4 § 3.3: 8 s). Tests only shorten it. */
   sendCallLimitMs?: number
+  /**
+   * Day 5: Workers AI (§ 3.8). Production = the binding, dev = the local fake over HTTP (both built by aiOf in
+   * index.ts); tests inject a scripted one. Absent = the speak route answers 502 voice_failed (`at: "config"`).
+   */
+  ai?: AiRun
+  /** The time limits of the speech call (10 s) and of each rewrite call (8 s). Tests only shorten them. */
+  sttLimitMs?: number
+  llmLimitMs?: number
 }
 
 /**

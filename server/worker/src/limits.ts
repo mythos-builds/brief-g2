@@ -101,6 +101,8 @@ export async function purge(db: D1Database, now: number): Promise<void> {
   await db.batch([
     db.prepare('DELETE FROM sessions WHERE expires_at <= ?1').bind(now),
     db.prepare('DELETE FROM handled WHERE expires_at <= ?1').bind(now),
+    // day 5: a demo session's spoken drafts go with its other rows (BRIEF-D5 § 3.5)
+    db.prepare('DELETE FROM spoken WHERE expires_at <= ?1').bind(now),
     db.prepare('DELETE FROM pair_codes WHERE expires_at <= ?1').bind(now),
     db.prepare('DELETE FROM oauth_states WHERE expires_at <= ?1').bind(now),
     db.prepare('DELETE FROM pair_failures WHERE at <= ?1').bind(now - 600),

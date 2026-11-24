@@ -4,6 +4,7 @@ import { type Deps, type Env, MissingConfig } from './env.ts'
 import { error, json, log, withAppHeaders } from './http.ts'
 import { oauthCallback, oauthStart } from './oauth.ts'
 import { connectPage, errorPage, notFoundPage } from './pages.ts'
+import { postSpeak } from './speak.ts'
 
 export const DEV_ORIGIN = 'http://127.0.0.1:5173'
 
@@ -26,9 +27,10 @@ function route(request: Request, env: Env, ctx: ExecutionContext, deps: Deps): R
     if (p === '/api/pair/claim' && m === 'POST') return r('api.pair.claim', () => postPairClaim(request, env, deps))
     if (p === '/api/items' && m === 'GET') return r('api.items', () => getItems(request, env, deps))
     if (p === '/api/calendar' && m === 'GET') return r('api.calendar', () => getCalendar(request, env, deps))
-    const im = /^\/api\/items\/([^/]+)\/(send|skip)$/.exec(p)
+    const im = /^\/api\/items\/([^/]+)\/(send|skip|speak)$/.exec(p)
     if (im && m === 'POST') {
       const id = im[1]! // not decoded: ids are URL-safe (ID_RE), anything else is not_found
+      if (im[2] === 'speak') return r('api.items.speak', () => postSpeak(request, env, deps, id))
       return im[2] === 'send'
         ? r('api.items.send', () => postSend(request, env, deps, id))
         : r('api.items.skip', () => postSkip(request, env, deps, id))
