@@ -200,7 +200,8 @@ The whole thing on one machine, with local fakes in place of Google and the mode
 « Local run ».
 
 `npm run shots` needs podman, the image built once (`podman build -t localhost/er-sim:bookworm tools/sim-container`)
-and the simulator packages (`cd tools && npm ci --ignore-scripts`).
+and the simulator packages (`cd tools && npm ci --ignore-scripts`). Without those packages three of the app's 128
+tests are skipped (« no simulator binary installed »); everything else runs with Node alone.
 
 ## Reference notes
 

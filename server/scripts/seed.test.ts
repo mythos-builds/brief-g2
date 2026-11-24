@@ -91,8 +91,18 @@ test('hard cap: every model rate-limited → at most 20 requests in the run', as
   assert.match(run.lines.at(-1)?.error ?? '', /^budget_exhausted/);
 });
 
+/**
+ * The dry-run file is not in git (`.gitignore`: `server/seed/*.dry.json`). Each test that reads it makes it first, so
+ * no test depends on another one having run before it (seen on a fresh clone: the test below failed with ENOENT).
+ */
+function dryRun(): { stdout: string; file: ReturnType<typeof JSON.parse> } {
+  const r = spawnSync(process.execPath, ['scripts/seed-demo.ts', '--dry-run'], { cwd: SERVER, encoding: 'utf8', env: { PATH: process.env.PATH ?? '' } });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  return { stdout: r.stdout, file: JSON.parse(readFileSync(new URL('../seed/demo-items.dry.json', HERE), 'utf8')) };
+}
+
 test('checkDemoFile: the shape of BRIEF-D2 § 3.10, nothing more', () => {
-  const good = JSON.parse(readFileSync(new URL('../seed/demo-items.dry.json', HERE), 'utf8'));
+  const good = dryRun().file;
   assert.equal(checkDemoFile(good), null);
   const clone = () => JSON.parse(JSON.stringify(good));
   const extra = clone(); extra.items[0].text = 'x';
@@ -108,11 +118,9 @@ test('checkDemoFile: the shape of BRIEF-D2 § 3.10, nothing more', () => {
 });
 
 test('CLI --dry-run: exit 0, a valid file, no network', () => {
-  const r = spawnSync(process.execPath, ['scripts/seed-demo.ts', '--dry-run'], { cwd: SERVER, encoding: 'utf8', env: { PATH: process.env.PATH ?? '' } });
-  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const r = dryRun();
   assert.match(r.stdout, /requests used: 12 \/ cap 20/);
-  const file = JSON.parse(readFileSync(new URL('../seed/demo-items.dry.json', HERE), 'utf8'));
-  assert.equal(checkDemoFile(file), null);
+  assert.equal(checkDemoFile(r.file), null);
 });
 
 test('CLI live without a key: exit 1, clear message, no request', () => {

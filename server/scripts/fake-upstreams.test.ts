@@ -148,7 +148,7 @@ test('fake-upstreams: metadata get, send, /_sent, every /_mode, then stopped', a
 
     // the sandbox fixture: an alias mail with Received → fromGmail says ignored
     const self = await sha256Hex('demo@example.com');
-    const withReceived = (await Promise.all(ids.map(async (id) => (await fetch(`${base}/gmail/v1/users/me/messages/${id}?format=full`, { headers: auth })).json() as { payload: { headers: Array<{ name: string }> } })))
+    const withReceived = (await Promise.all(ids.map(async (id) => (await (await fetch(`${base}/gmail/v1/users/me/messages/${id}?format=full`, { headers: auth })).json()) as { payload: { headers: Array<{ name: string }> } })))
       .filter((m) => m.payload.headers.some((h) => h.name === 'Received'));
     assert.equal(withReceived.length, 1);
     assert.equal(await fromGmail(withReceived[0], self, PERSONAS), null);
