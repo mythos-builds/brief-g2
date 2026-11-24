@@ -76,17 +76,28 @@ export interface Item {
  * `already_handled`: then the list is read again) and `unknown` (504 `send_unknown`: a press goes on to the next item). */
 export type StateName = 'signin' | 'offline' | 'working' | 'error' | 'later' | 'limit' | 'sendcap' | 'handled' | 'unknown'
 
+/** BRIEF-D5.md § 3.10: the lines after a « Speak a change » that did not give a draft. A press → B as before the pick. */
+export type VoiceMsg = 'notheard' | 'failed' | 'limit' | 'stale' | 'nomic'
+
+/** B. `rev` is present only while B shows the stored spoken draft (BRIEF-D5.md § 3.5): its `Send now` posts choice 5. */
+export type MailScreen = { kind: 'mail'; id: string; draft: string; rev?: string }
+
 export type Screen =
   | { kind: 'home' }
-  | { kind: 'mail'; id: string; draft: string } // B (B′ for Telegram)
-  | { kind: 'alts'; id: string; draft: string } // D″, draft = the one B shows, kept on Back
-  | { kind: 'confirm'; id: string; draft: string; failed?: boolean } // C (C′); failed = the last send got 502 `send_failed`
+  | MailScreen // B (B′ for Telegram)
+  | { kind: 'alts'; id: string; draft: string; rev?: string } // D″, draft (and rev) = the one B shows, kept on Back
+  | { kind: 'confirm'; id: string; draft: string; failed?: boolean; rev?: string } // C (C′); failed = the last send got 502 `send_failed`
+  | { kind: 'listen'; id: string; back: MailScreen } // D: the microphone is on; back = B as it was before the pick
+  | { kind: 'rewriting'; id: string; back: MailScreen } // D: the clip is posted, the microphone is off
+  | { kind: 'voice'; which: VoiceMsg; back: MailScreen } // D: one of the five lines; a press → back
   | { kind: 'sent'; id: string; source: Source; nextIndex: number; real: boolean } // `Sent ✓`; real = the Worker said so
   | { kind: 'brief'; page: number } // E
   | { kind: 'state'; which: StateName; nextIndex?: number } // F; `unknown`: the item a press opens next
 
 export interface AppState {
   items: Item[] // the items that still need you, in display order
+  /** Backend mode: the items answer said `"voice": true` (BRIEF-D5.md § 3.7). Absent = false (static mode: never). */
+  voice?: boolean
   sent: { id: string; draft: string }[] // faked sends, nothing leaves the app
   screen: Screen
 }
@@ -109,7 +120,9 @@ export type Input =
  * main.ts posts the choice and shows `Sent` only after a 200) · `skip`: Skip on B (backend: the skip route) ·
  * `reload`: a press on an F state (backend: load the list again).
  */
-export type Effect = 'none' | 'exit-dialog' | 'fake-send' | 'skip' | 'reload'
+export type Effect = 'none' | 'exit-dialog' | 'fake-send' | 'skip' | 'reload' | 'mic-on' | 'mic-stop'
+// `mic-on`: B's `Speak a change` was picked; main.ts draws D FIRST, then starts the microphone (BRIEF-D5.md § 3.10) ·
+// `mic-stop`: a press on D while listening; main.ts turns the microphone off BEFORE anything else, then posts the clip.
 
 // ---- page description, pure data; src/main.ts turns it into SDK containers ----
 

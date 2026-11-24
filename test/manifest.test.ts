@@ -4,15 +4,20 @@ import { readFileSync } from 'node:fs'
 
 const read = (p: string) => JSON.parse(readFileSync(new URL(p, import.meta.url), 'utf8'))
 
-test('app.json: id, name, network whitelist brief.appfinishers.com only, no microphone', () => {
+test('app.json: id, name, network whitelist brief.appfinishers.com only; day 5: the glasses microphone, not the phone\'s', () => {
   const app = read('../app.json')
   assert.equal(app.package_id, 'com.appfinishers.brief')
   assert.equal(app.name, 'Brief')
   assert.equal(app.min_sdk_version, '0.0.12')
   assert.deepEqual(
     app.permissions.map((p: { name: string }) => p.name),
-    ['network'],
+    ['network', 'g2-microphone'],
   )
+  // BRIEF-D5.md § 3.10: one more permission, this exact text; never `phone-microphone` (decision 1.10)
+  assert.deepEqual(app.permissions[1], {
+    name: 'g2-microphone',
+    desc: 'Records a short spoken change to a reply draft, only after you pick Speak a change.',
+  })
   assert.deepEqual(app.permissions[0].whitelist, ['https://brief.appfinishers.com'])
 })
 

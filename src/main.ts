@@ -3,11 +3,13 @@
 // BRIEF-D3.md § 3 and BRIEF-D4.md § 3 (items, calendar, `signin_needed`, the send outcomes, logout). The app only posts
 // the index of the reply shown; whether a real mail leaves is the Worker's decision (`"real":true|false` in its answer).
 import {
+  AudioInputSource,
   CreateStartUpPageContainer,
   ListContainerProperty,
   ListItemContainerProperty,
   RebuildPageContainer,
   TextContainerProperty,
+  TextContainerUpgrade,
   waitForEvenAppBridge,
   type EvenAppBridge,
 } from '@evenrealities/even_hub_sdk'
@@ -17,10 +19,11 @@ import { STATIC_ALTS } from './data/static-alts.ts'
 import { API_BASE, CONNECT_ADDRESS, DATA_SOURCE, readConfig, REQUIRE_PAIRING, URL_SWITCHES } from './config.ts'
 import { BackendError, bridgeStorage, createClient, type Client } from './data/backend.ts'
 import { buildItems, clockOf, localClock } from './logic/items.ts'
-import { afterSendFailure, afterSkipFailure, initialState, reduce } from './logic/flow.ts'
+import { afterMic, afterSendFailure, afterSkipFailure, afterSpeak, initialState, reduce, stateOf, type MicStop, type SpeakOutcome } from './logic/flow.ts'
+import { createRecorder, listenText, pcmOf, type Mic } from './logic/recorder.ts'
 import { sideSignal, toInput } from './logic/input.ts'
 import { createRetry } from './logic/retry.ts'
-import { briefPages, pageFor, type PageContext } from './logic/pages.ts'
+import { briefPages, LISTEN_BOX, pageFor, type PageContext } from './logic/pages.ts'
 import type { AppState, Dataset, Input, Item, PageSpec, Screen, StateName } from './logic/types.ts'
 
 const ds = dataset as Dataset
@@ -113,7 +116,7 @@ async function render(bridge: EvenAppBridge): Promise<void> {
 
 function failScreen(e: unknown): Screen {
   const kind = e instanceof BackendError ? e.kind : 'error'
-  return stateScreen(kind === 'gone' || kind === 'failed' ? 'error' : kind)
+  return stateScreen(stateOf(kind))
 }
 
 // « No connection — retrying » retries by itself: 2 s, 5 s, 15 s, then every 30 s; stopped in the background.
@@ -154,7 +157,7 @@ async function load(bridge: EvenAppBridge): Promise<void> {
       ctx.clock = cfg.clock ?? localClock(new Date()) // `?at=` exists on the dev server only (the screenshot walk)
       ctx.calendar = []
     }
-    state = initialState(ds, items, { clock: ctx.clock, events: ctx.calendar })
+    state = { ...initialState(ds, items, { clock: ctx.clock, events: ctx.calendar }), voice: client.voice() }
   } catch (e) {
     state = { ...state, items: [], screen: failScreen(e) }
   }
@@ -173,13 +176,84 @@ function armSentTimer(bridge: EvenAppBridge): void {
   sentTimer = setTimeout(() => dispatch(bridge, { type: 'tick' }), 2000)
 }
 
+// ---- « Speak a change » (BRIEF-D5.md § 3.10). The rules live in src/logic/flow.ts and src/logic/recorder.ts; here only
+// the glue: the glasses microphone (or, on the dev server, the `?clip=` file), the level bar, the post. ----
+
+/** The dev server's `?clip=` source (src/dev-voice.ts); undefined = the glasses microphone. */
+let devMic: Mic | undefined
+const mic: Mic = {
+  on: async () => (devMic ? devMic.on() : bridgeRef ? bridgeRef.audioControl(true, AudioInputSource.Glasses) : false),
+  off: async () => (devMic ? devMic.off() : bridgeRef?.audioControl(false)),
+}
+const recorder = createRecorder(
+  mic,
+  { now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) },
+  {
+    // the bar only: textContainerUpgrade on D's one text container, never a page rebuild while listening
+    level: (cells) => {
+      if (!bridgeRef || state.screen.kind !== 'listen' || page?.screen !== 'D') return
+      const content = listenText(cells)
+      void bridgeRef.textContainerUpgrade(new TextContainerUpgrade({ containerID: 1, containerName: LISTEN_BOX, contentOffset: 0, contentLength: content.length, content }))
+    },
+    done: (reason, clip) => {
+      queue = queue.then(() => (bridgeRef ? micDone(bridgeRef, reason, clip) : undefined))
+    },
+  },
+)
+
+/** The microphone is off already (recorder.ts). Then: B as before, an error line, or `Rewriting…` and the post. */
+async function micDone(bridge: EvenAppBridge, reason: MicStop, clip: Uint8Array): Promise<void> {
+  const r = afterMic(state, reason, clip.length)
+  state = r.state
+  // `Rewriting…` (the press already moved the state there), an error line, or B: drawn unless the glasses show it already
+  const redraw = JSON.stringify(pageFor(state, ctx)) !== JSON.stringify(page)
+  if (redraw) await render(bridge)
+  const s = state.screen
+  if (!r.post || !client || s.kind !== 'rewriting') return
+  const c = client
+  // the post runs outside the queue: while waiting, every input is ignored except the double-press (the exit)
+  const pcm = clip.length % 2 ? clip.subarray(0, clip.length - 1) : clip
+  void c.speak(s.id, s.back, pcm).then(
+    (d): SpeakOutcome => ({ ok: true, draft: d.draft, rev: d.rev }),
+    (e: unknown): SpeakOutcome => ({ ok: false, kind: e instanceof BackendError ? e.kind : 'voicefail' }),
+  ).then((out) => {
+    queue = queue.then(async () => {
+      if (state.screen !== s) return // the page moved on meanwhile
+      console.log(`BRIEF_SPOKEN ${JSON.stringify({ id: s.id, ok: out.ok })}`) // never the draft
+      const next = afterSpeak(state, out)
+      if (!next) return load(bridge)
+      state = next
+      if (needsTick()) armSentTimer(bridge)
+      return render(bridge)
+    })
+  })
+}
+
 function dispatch(bridge: EvenAppBridge, input: Input): void {
   queue = queue.then(async () => {
     const before = state
     const step = reduce(state, input, briefPages(ctx).length)
     if (step.effect === 'exit-dialog') {
-      // the system exit dialog; nothing is cleaned up here, the user can still cancel
+      // the system exit dialog; the user can still cancel. While listening, the microphone goes off first and B comes back.
+      if (recorder.active()) {
+        await recorder.stop('exit')
+        state = step.state
+        await render(bridge)
+      }
       await bridge.shutDownPageContainer(1)
+      return
+    }
+    if (step.effect === 'mic-on') {
+      // D is drawn FIRST, then the microphone starts (never at launch, by a timer or by an answer of the server)
+      state = step.state
+      await render(bridge)
+      if (state.screen.kind === 'listen') await recorder.start()
+      return
+    }
+    if (step.effect === 'mic-stop') {
+      // a press while listening: the microphone off BEFORE anything else; micDone then draws `Rewriting…` and posts
+      state = step.state
+      await recorder.stop('press')
       return
     }
     if (step.effect === 'reload' && client) return load(bridge)
@@ -192,7 +266,7 @@ function dispatch(bridge: EvenAppBridge, input: Input): void {
       try {
         // the choice posted = the index of the text C shows (backend.ts choiceFor): a retry after `send_failed` keeps C's
         // text, so it posts the same index again
-        const r = await client.send(s.id, s.draft)
+        const r = await client.send(s.id, s.draft, s.rev)
         console.log(`BRIEF_SENT ${JSON.stringify({ id: s.id, real: r.real })}`)
         const sent = step.state.screen
         state = sent.kind === 'sent' ? { ...step.state, screen: { ...sent, real: r.real } } : step.state
@@ -243,6 +317,9 @@ function showSource(): void {
   const mode = client ? client.mode() : 'static'
   if (el) el.textContent = SOURCE_TEXT[mode ?? 'none']
   if (disc) disc.hidden = mode !== 'paired'
+  // BRIEF-D5.md § 3.10: the one more sentence, shown while the server offers « Speak a change »
+  const voice = document.querySelector<HTMLElement>('#voice-note')
+  if (voice) voice.hidden = !client?.voice()
 }
 
 function tell(text: string): void {
@@ -327,8 +404,16 @@ wireSigninHelp()
 const bridge = await waitForEvenAppBridge()
 bridgeRef = bridge
 bridge.onEvenHubEvent((event) => {
+  if (event.audioEvent && !devMic) {
+    const pcm = pcmOf(event.audioEvent.audioPcm)
+    if (pcm) recorder.push(pcm)
+  }
   const side = sideSignal(event)
+  // the recorder remembers the side: a background that lands while D is drawn, or while the microphone's start is in
+  // flight, still keeps the microphone off (D5 review F1)
+  recorder.side(side)
   if (side === 'background') {
+    // the app left the foreground, or an abnormal / system exit: the microphone goes off (recorder.side → stop('background'))
     if (sentTimer) clearTimeout(sentTimer)
     retry.pause()
   } else if (side === 'foreground') {
@@ -342,7 +427,7 @@ showSource()
 if (backend) {
   client = createClient({
     base: API_BASE,
-    fetch: (url, init) => fetch(url, init),
+    fetch: (url, init) => fetch(url, init as RequestInit),
     storage: bridgeStorage(bridge),
     onPairedDropped: () => {
       tell('Your paired session ended, so this phone forgot it. Type a new code to see your inbox again; a press on the glasses shows demo data.')
@@ -359,6 +444,19 @@ if (backend) {
       const r = await devPair({ href: location.href, claim: (code) => c.claim(code), replace: (h) => history.replaceState(null, '', h) })
       if (r !== 'none') tell(r === 'paired' ? 'Paired from the address (dev server).' : "The code in the address didn't work.")
     })
+    // dev-only clip (src/dev-voice.ts): `?clip=<a same-origin path>` replaces the microphone (the simulator has no audio device)
+    if (new URLSearchParams(location.search).has('clip')) {
+      queue = queue.then(async () => {
+        const v = await import('./dev-voice.ts')
+        const url = v.clipUrlOf(location.href)
+        if (!url) return
+        devMic = v.clipMic(
+          async () => new Uint8Array(await (await fetch(url)).arrayBuffer()),
+          (chunk) => recorder.push(chunk),
+          { every: (fn, ms) => setInterval(fn, ms), cancel: (h) => clearInterval(h as ReturnType<typeof setInterval>) },
+        )
+      })
+    }
   }
   queue = queue.then(() => load(bridge))
 } else {

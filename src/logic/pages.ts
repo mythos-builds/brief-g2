@@ -1,9 +1,10 @@
 // State → page description (pure data). Layout from SCREENS.md; every text is fitted with measured widths.
 import { pxTruncate } from '@evenrealities/pretext'
-import type { AppState, CalEvent, Dataset, Item, ListBox, PageSpec, StateName, TextBox } from './types.ts'
+import type { AppState, CalEvent, Dataset, Item, ListBox, PageSpec, StateName, TextBox, VoiceMsg } from './types.ts'
 import { actItems, altItems, CONFIRM_ITEMS, findItem, LIST_OF } from './flow.ts'
 import { briefDueIn, eventsOf, homeLabel, needLine, nextOf, shownTime, summaryLine } from './items.ts'
 import { DRAFT_PREFIX } from './replies.ts'
+import { listenText } from './recorder.ts'
 import { CONNECT_ADDRESS } from '../config.ts'
 import { LIST_ITEM_H, LIST_ITEM_PAD, MAX_LIST_ITEM_CHARS, MAX_TEXT_LINES, SCREEN_H, SCREEN_W, wrap } from './measure.ts'
 
@@ -31,6 +32,18 @@ export const STATE_TEXT: Record<StateName, string> = {
   handled: 'Already handled.',
   unknown: 'Not confirmed. Check Sent on your phone.',
 }
+
+/** BRIEF-D5.md § 3.10: the lines after a « Speak a change » that gave no draft (a press → B as before the pick). */
+export const VOICE_TEXT: Record<VoiceMsg, string> = {
+  notheard: "Didn't hear you. Press to go back.",
+  failed: "Couldn't change the reply. Press to go back.",
+  limit: 'Voice limit reached. Use Other answers.',
+  stale: 'That draft is gone. Press to go back.',
+  nomic: 'No microphone. Use Other answers.',
+}
+export const REWRITING_TEXT = 'Rewriting…'
+/** D's text container: its name is the one main.ts upgrades in place (textContainerUpgrade) while listening. */
+export const LISTEN_BOX = 'rec'
 
 export interface PageContext {
   ds: Dataset
@@ -89,7 +102,7 @@ function homePage(state: AppState, ctx: PageContext): PageSpec {
   }
 }
 
-function mailPage(item: Item, draft: string): PageSpec {
+function mailPage(item: Item, draft: string, voice = false): PageSpec {
   const from = fromLine(item)
   // a refused draft (src/logic/replies.ts) is never shown: B then offers the alternatives or Skip, never Send
   const draftLine = draft ? `${DRAFT_PREFIX}${draft}` : 'No draft to send — see Other answers'
@@ -98,9 +111,16 @@ function mailPage(item: Item, draft: string): PageSpec {
   if (lines([from, summary, draftLine].join('\n'), SCREEN_W) > MAX_TEXT_LINES)
     summary = fitLine(summary, { kind: 'text', w: SCREEN_W, pad: TEXT_PAD })
   const content = [from, summary, draftLine].join('\n')
+  const rows = actItems(item, draft, voice)
+  // BRIEF-D5.md § 3.10: four rows are all visible at once (no scrolling): the list grows to 160 px and moves up to y 128;
+  // the text keeps 4 lines (the 4-line rule), so the draft is never cut. Three rows or fewer: the day-4 layout, unchanged.
+  if (rows.length >= 4) {
+    const h = rows.length * LIST_ITEM_H
+    return { screen: 'B', boxes: [text('mail', 0, 0, SCREEN_W, SCREEN_H - h - 4, content), list(LIST_OF.mail, SCREEN_H - h, h, rows)] }
+  }
   return {
     screen: 'B',
-    boxes: [text('mail', 0, 0, SCREEN_W, 148, content), list(LIST_OF.mail, 160, 120, actItems(item, draft))],
+    boxes: [text('mail', 0, 0, SCREEN_W, 148, content), list(LIST_OF.mail, 160, 120, rows)],
   }
 }
 
@@ -146,7 +166,7 @@ export function pageFor(state: AppState, ctx: PageContext): PageSpec {
     case 'confirm': {
       const item = findItem(state, s.id)
       if (!item) return homePage(state, ctx)
-      if (s.kind === 'mail') return mailPage(item, s.draft)
+      if (s.kind === 'mail') return mailPage(item, s.draft, state.voice === true)
       if (s.kind === 'alts') return altsPage(item)
       return confirmPage(item, s.draft, s.failed === true)
     }
@@ -162,5 +182,12 @@ export function pageFor(state: AppState, ctx: PageContext): PageSpec {
     }
     case 'state':
       return { screen: 'F', boxes: [text('state', 0, 0, SCREEN_W, SCREEN_H, STATE_TEXT[s.which], true)] }
+    // D: drawn once with an empty bar; while listening main.ts only upgrades this text (no page rebuild)
+    case 'listen':
+      return { screen: 'D', boxes: [text(LISTEN_BOX, 0, 0, SCREEN_W, SCREEN_H, listenText(0), true)] }
+    case 'rewriting':
+      return { screen: 'DW', boxes: [text('wait', 0, 0, SCREEN_W, SCREEN_H, REWRITING_TEXT, true)] }
+    case 'voice':
+      return { screen: 'DX', boxes: [text('voice', 0, 0, SCREEN_W, SCREEN_H, VOICE_TEXT[s.which], true)] }
   }
 }

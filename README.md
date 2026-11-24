@@ -73,6 +73,18 @@ and the simulator packages (`cd tools && npm ci --ignore-scripts`).
   removed from the address (`src/dev-pair.ts`; `npm test` builds both production builds and finds it in no file of
   `dist/`). With the simulator: `tools/sim.sh start 'http://127.0.0.1:5174/?pair=123456'`. `sim.sh` keeps the simulator
   user's home on the podman volume `er-sim-data` (`SIM_VOLUME=` for none, `sim.sh wipe` removes it); see Known limits.
+- « Speak a change » (day 5, backend mode, demo and paired; offered only when the items answer says `"voice": true`, so
+  never in static mode): B's fourth row. After the pick the glasses draw `Listening… press to stop` with an 11-cell level
+  bar, THEN turn on the glasses microphone (`audioControl(true, AudioInputSource.Glasses)`); it stops on a press, at 10 s of
+  sound (320,000 bytes) or 12 s on the clock, and is turned off before anything else, on every way out (the stop, each
+  error, the double-press, the background, an abnormal exit). What leaves the glasses: that clip only, raw samples (16 kHz,
+  16-bit, mono, 10 s at most), posted once to the Brief server (`POST /api/items/<id>/speak?base=<n>`); the server turns
+  it into text with Cloudflare Workers AI, has the reply rewritten from four things (the sender's first name, the six-word
+  summary, the reply on screen, what you said), checks it and keeps only that new draft. The clip and its text are not
+  kept, on the glasses or on the server. The app shows `Draft: <the new reply>`; `Send` → C → `Send now` posts
+  `{"choice":5,"rev":"<8 hex>"}`, so only the draft you saw can leave. Speaking never sends.
+- Dev-only clip (`src/dev-voice.ts`, dev server only, found in no file of `dist/`): `?clip=<a same-origin path>` (raw
+  samples or a WAV) replaces the microphone, 3,200 bytes every 100 ms then silence; the walk makes its own tone at run time.
 - `SOURCES` (`src/config.ts`) is mail only by default; with Telegram on, Telegram items join the same list with a « TG » tag.
   The `?sources=`, `?at=` and `?states=1` URL switches work on the dev server only.
 
@@ -89,10 +101,24 @@ after a real send, no demo line (`32`), `Not confirmed` after `send_unknown` (`3
 in three lines; `25` shows the stub's host `127.0.0.1:8788`), `24` (the device clock in the header; the walk fixes
 it with the dev-only `?at=13:53`, so the PNG is the same at every run). Every other PNG is byte-identical.
 
+Day 5 (« Speak a change », backend mode against the stub, paired through `?pair=`, the dev-only `?clip=` tone instead of
+the microphone): B with four rows (`35`), D listening with the bar part full (`36`), `Rewriting…` (`37`), B with the
+spoken draft (`38`), C with it (`39`), then the five lines: `Didn't hear you.` (`40`), `Couldn't change the reply.` (`41`),
+`Voice limit reached.` (`42`), `That draft is gone.` (`43`, a `Send now` whose stored spoken draft is gone) and
+`No microphone.` (`44`: the simulator's own microphone, no audio device in its jail). B with three rows is unchanged
+(static mode never offers the voice): all 34 earlier PNGs are byte-identical.
+
 `19-double-press-sim.png`: on a double-press the app calls the system exit dialog (`shutDownPageContainer(1)`). The
 simulator (0.9.5) draws no dialog: the glasses canvas goes black. What the real glasses show is not checked yet.
 
 ## Known limits
+
+- « Speak a change »: what the user said is read only by their own eyes on B and C: the server's check
+  (`checkSpoken`) refuses a link, a long text or an unsafe one, but cannot know a wrong hour or a promise the user did not
+  make; `Send` → `Send now` stays the only way out. English only, no live text while speaking. The microphone path was
+  walked in the simulator with the dev-only clip only (its jail has no audio device); the real glasses' microphone and
+  its chunk size are not checked here. Limits (the server's): 12 clips per session per hour, 30 per address per hour and 40 per
+  address per day, a daily budget of Workers AI units for all users (`VOICE_DAILY_NEURONS`).
 
 - The exit dialog (double press) draws nothing in the simulator 0.9.5 (`19-double-press-sim.png` is black); real glasses not checked.
 - The simulator 0.9.5 keeps the SDK storage (`setLocalStorage`) in memory only: after a dev pairing, nothing on disk holds

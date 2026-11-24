@@ -10,7 +10,11 @@ export type Mode = 'demo' | 'paired'
  * a skip: `handled` (409 `already_handled`) · `failed` (502 `send_failed`: nothing left, the item is offered again) ·
  * `unknown` (504 `send_unknown`, or any other 5xx on a send: it may have left, never offered again) · `sendcap`
  * (429 `daily_cap` on a send: the account's daily limit of real sends). */
-export type Failure = 'offline' | 'later' | 'limit' | 'signin' | 'error' | 'handled' | 'failed' | 'unknown' | 'sendcap'
+export type Failure = 'offline' | 'later' | 'limit' | 'signin' | 'error' | 'handled' | 'failed' | 'unknown' | 'sendcap' | Spoken
+/** BRIEF-D5.md § 3.1 / 3.10: `notheard` (422 `not_heard`) · `voicefail` (502 `voice_failed`, any other 5xx on a speak,
+ * no connection, no answer in 30 s) · `voicelimit` (429 `rate_limited` or `daily_cap` on a speak) · `stale` (409
+ * `stale_draft`, on a speak or a send: the spoken draft is gone). */
+export type Spoken = 'notheard' | 'voicefail' | 'voicelimit' | 'stale'
 /** send / skip only: the item is unknown (404) or already handled (409) on the server → reload the list. */
 export type Gone = 'gone'
 
@@ -30,7 +34,7 @@ export interface KeyValue {
 
 export type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
+  init: { method: string; headers: Record<string, string>; body?: string | Uint8Array; signal?: AbortSignal },
 ) => Promise<{
   status: number
   json(): Promise<unknown>
@@ -71,7 +75,13 @@ interface Session {
 
 /** HTTP status (+ the contract's error code) → what the glasses say. 403 `signin_needed` (BRIEF-D3.md § 3.1): the
  * paired account's Google grant is dead → « Sign-in needed »; the session itself is kept (a new sign-in revives it). */
-export function failureOf(status: number, code: unknown, op: 'send' | 'other' = 'other'): Failure | Gone {
+export function failureOf(status: number, code: unknown, op: 'send' | 'speak' | 'other' = 'other'): Failure | Gone {
+  if (status === 409 && code === 'stale_draft') return 'stale'
+  if (op === 'speak') {
+    if (status === 422) return 'notheard'
+    if (status === 429) return 'voicelimit'
+    if (status >= 500) return 'voicefail'
+  }
   if (status === 409) return code === 'already_handled' ? 'handled' : 'gone'
   if (status === 404) return 'gone'
   if (status === 429) return code === 'daily_cap' ? (op === 'send' ? 'sendcap' : 'limit') : 'later'
@@ -161,17 +171,40 @@ export function choiceFor(raw: Item | undefined, shown: string): number | undefi
   return i >= 0 ? i + 1 : undefined
 }
 
+/** The `rev` of a spoken draft (BRIEF-D5.md § 3.5): 8 lower-case hex characters. */
+export const REV_RE = /^[0-9a-f]{8}$/
+/** BRIEF-D5.md § 3.10: 30 seconds without an answer to a speak = `Couldn't change the reply.` */
+export const SPEAK_MS = 30_000
+
+/** The `base` of a speak = which reply B shows: 5 = the stored spoken draft (it has a rev), else the choice of the text
+ * (0 the draft, 1–4 an alternative); undefined = none of them (never posted). */
+export function baseFor(raw: Item | undefined, shown: { draft: string; rev?: string }): number | undefined {
+  if (shown.rev !== undefined) return REV_RE.test(shown.rev) ? 5 : undefined
+  return choiceFor(raw, shown.draft)
+}
+
+/** A raw body with the octet-stream type (a speak); any other body is JSON. */
+class Octets {
+  readonly bytes: Uint8Array
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes
+  }
+}
+
 export function createClient(opts: ClientOptions) {
   let session: Session | undefined
   let raw = new Map<string, Item>()
+  let voice = false
 
   async function call(method: string, path: string, body?: unknown, auth = true, signal?: AbortSignal): Promise<{ status: number; json: unknown }> {
     const headers: Record<string, string> = {}
-    if (body !== undefined) headers['content-type'] = 'application/json'
+    if (body instanceof Octets) headers['content-type'] = 'application/octet-stream'
+    else if (body !== undefined) headers['content-type'] = 'application/json'
     if (auth && session) headers.authorization = `Bearer ${session.token}`
     let res: Awaited<ReturnType<FetchLike>>
     try {
-      const init: Parameters<FetchLike>[1] = { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }
+      const sent = body instanceof Octets ? body.bytes : body === undefined ? undefined : JSON.stringify(body)
+      const init: Parameters<FetchLike>[1] = { method, headers, body: sent }
       if (signal) init.signal = signal
       res = await opts.fetch(`${opts.base}${path}`, init)
     } catch {
@@ -225,9 +258,9 @@ export function createClient(opts: ClientOptions) {
    * session is NEVER silently replaced by demo data (BRIEF-D3.md § 4.3): it is forgotten, the phone-side page is told,
    * and the glasses show « Sign-in needed »; a press there then starts a demo session (or pairing again).
    */
-  async function authed(method: string, path: string, body?: unknown, requirePairing = false) {
+  async function authed(method: string, path: string, body?: unknown, requirePairing = false, signal?: AbortSignal) {
     if (!session) await start(requirePairing)
-    let r = await call(method, path, body)
+    let r = await call(method, path, body, true, signal)
     if (r.status === 401) {
       if (session?.mode === 'paired') {
         await forgetPaired()
@@ -236,7 +269,7 @@ export function createClient(opts: ClientOptions) {
       }
       if (requirePairing) throw new BackendError('signin')
       await newDemoSession()
-      r = await call(method, path, body)
+      r = await call(method, path, body, true, signal)
     }
     return r
   }
@@ -247,17 +280,26 @@ export function createClient(opts: ClientOptions) {
       const f = failureOf(r.status, codeOf(r.json))
       throw new BackendError(f === 'gone' ? 'error' : f)
     }
-    const o = (r.json ?? {}) as { items?: unknown; mode?: unknown }
+    const o = (r.json ?? {}) as { items?: unknown; mode?: unknown; voice?: unknown }
     if (!Array.isArray(o.items) || !o.items.every(isItem)) throw new BackendError('error')
     raw = new Map(o.items.map((i) => [i.id, i]))
+    voice = o.voice === true // BRIEF-D5.md § 3.7: no such key (an older Worker) = false
     return toShown(o.items, sources)
   }
 
-  /** `Send now`: posts the choice for the text C showed. Resolves only on a 200 with {"sent":true}. */
-  async function send(id: string, shown: string): Promise<{ real: boolean }> {
-    const choice = choiceFor(raw.get(id), shown)
-    if (choice === undefined) throw new BackendError('error')
-    const r = await authed('POST', `/api/items/${encodeURIComponent(id)}/send`, { choice })
+  /** `Send now`: posts the choice for the text C showed: the stored spoken draft (it has a `rev`) = `{"choice":5,"rev"}`
+   * (BRIEF-D5.md § 3.6), else its index. Resolves only on a 200 with {"sent":true}. */
+  async function send(id: string, shown: string, rev?: string): Promise<{ real: boolean }> {
+    let body: { choice: number; rev?: string }
+    if (rev !== undefined) {
+      if (!REV_RE.test(rev) || !shown) throw new BackendError('error')
+      body = { choice: 5, rev }
+    } else {
+      const choice = choiceFor(raw.get(id), shown)
+      if (choice === undefined) throw new BackendError('error')
+      body = { choice }
+    }
+    const r = await authed('POST', `/api/items/${encodeURIComponent(id)}/send`, body)
     if (r.status !== 200) throw new BackendError(failureOf(r.status, codeOf(r.json), 'send'))
     const o = (r.json ?? {}) as { sent?: unknown; real?: unknown }
     if (o.sent !== true) throw new BackendError('error')
@@ -295,6 +337,38 @@ export function createClient(opts: ClientOptions) {
     await forgetPaired()
   }
 
+  /**
+   * « Speak a change » (BRIEF-D5.md § 3.2): the raw samples to `POST /api/items/<id>/speak?base=<n>`, octet-stream. Resolves
+   * with the new draft and its rev on a 200 whose draft passes the app's own checks; any other answer is a BackendError.
+   * No answer within `speakMs` (30 s) = `voicefail`; the request is aborted.
+   */
+  async function speak(id: string, shown: { draft: string; rev?: string }, pcm: Uint8Array, speakMs = SPEAK_MS): Promise<{ draft: string; rev: string }> {
+    const base = baseFor(raw.get(id), shown)
+    if (base === undefined) throw new BackendError('voicefail')
+    const abort = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<never>((_, ko) => (timer = setTimeout(() => ko(new BackendError('voicefail')), speakMs)))
+    let r: { status: number; json: unknown }
+    try {
+      const path = `/api/items/${encodeURIComponent(id)}/speak?base=${base}`
+      r = await Promise.race([authed('POST', path, new Octets(pcm), false, abort.signal), late])
+    } catch (e) {
+      // no connection on a speak = `Couldn't change the reply.`; a dropped paired session stays « Sign-in needed »
+      if (e instanceof BackendError && e.kind === 'offline') throw new BackendError('voicefail')
+      throw e
+    } finally {
+      clearTimeout(timer)
+      abort.abort()
+    }
+    if (r.status !== 200) throw new BackendError(failureOf(r.status, codeOf(r.json), 'speak'))
+    const o = (r.json ?? {}) as Record<string, unknown>
+    const keys = Object.keys(o).sort().join(',')
+    if (keys !== 'draft,rev' || typeof o.draft !== 'string' || typeof o.rev !== 'string' || !REV_RE.test(o.rev)) throw new BackendError('voicefail')
+    // the app shows only what it can draw whole (src/logic/replies.ts): a draft it refuses is never shown nor sent
+    if (validDraft(o.draft) === '') throw new BackendError('voicefail')
+    return { draft: o.draft, rev: o.rev }
+  }
+
   async function skip(id: string): Promise<void> {
     const r = await authed('POST', `/api/items/${encodeURIComponent(id)}/skip`)
     if (r.status !== 200) throw new BackendError(failureOf(r.status, codeOf(r.json)))
@@ -310,7 +384,7 @@ export function createClient(opts: ClientOptions) {
     session = s
   }
 
-  return { start, items, calendar, send, skip, claim, disconnect, mode: (): Mode | undefined => session?.mode }
+  return { start, items, calendar, send, speak, skip, claim, disconnect, mode: (): Mode | undefined => session?.mode, voice: () => voice }
 }
 
 export type Client = ReturnType<typeof createClient>

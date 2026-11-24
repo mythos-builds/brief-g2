@@ -5,6 +5,8 @@
 // stops the simulator and the server, and exits 0 only if everything passed. Local only: no other network call.
 // Backend mode (BRIEF-D3.md § 4.5): a second dev server built with VITE_DATA_SOURCE=backend talks to the in-memory stub
 // of test/stub-backend.ts served on 127.0.0.1:8788 (the contract of BRIEF-D3.md § 3; no Worker, nothing upstream).
+// Day 5 (BRIEF-D5.md § 4.4): « Speak a change » with the dev-only clip (`?clip=`, src/dev-voice.ts): a tone that rises and
+// falls, made here at run time into scripts/walk-clip.local (ignored by git, removed at the end), never a recorded voice.
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { mkdirSync, writeFileSync, readdirSync, unlinkSync, readFileSync } from 'node:fs'
@@ -31,8 +33,23 @@ const ds = JSON.parse(readFileSync(join(APP, 'src', 'data', 'dataset.json'), 'ut
 const supplier = eventsOf(ds).find((e) => e.brief)
 if (!supplier) throw new Error('the dataset has no event with a brief')
 // day 4: two pairing codes for the paired send runs (dev-only `?pair=`, src/dev-pair.ts), the same stub account
-const be = stubBackend(buildItems(ds, ['mail'], STATIC_ALTS), { demoCalendar: { now: '13:52', events: [supplier] }, codes: ['111111', '222222'] })
-const extra = { signinNeeded: false } // shots only: every items call answers 403 signin_needed (the live F path)
+// day 5: three more codes, each its own account (acct-1's two mails are handled by the day-4 runs)
+const be = stubBackend(buildItems(ds, ['mail'], STATIC_ALTS), {
+  demoCalendar: { now: '13:52', events: [supplier] },
+  codes: ['111111', '222222', '333333', '444444', '555555'],
+  codeAccounts: { '333333': 'acct-2', '444444': 'acct-3', '555555': 'acct-4' },
+})
+const extra = { signinNeeded: false, speakDelayMs: 0 } // shots only: 403 on every items call (the live F path) · a slow speak
+
+// the walk's clip: 3 s of 16 kHz signed 16-bit mono, a 220 Hz tone whose loudness rises and falls (the bar moves)
+const CLIP_FILE = join(APP, 'scripts', 'walk-clip.local')
+const CLIP = '/scripts/walk-clip.local'
+function writeClip(): void {
+  const n = 16_000 * 3
+  const b = Buffer.alloc(n * 2)
+  for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(Math.sin(Math.PI * (i / n)) * 20000 * Math.sin((2 * Math.PI * 220 * i) / 16000)), i * 2)
+  writeFileSync(CLIP_FILE, b)
+}
 
 function serveStub(): Promise<Server> {
   const server = createServer((req, res) => {
@@ -43,15 +60,19 @@ function serveStub(): Promise<Server> {
       'access-control-allow-methods': 'GET, POST',
     }
     if (req.method === 'OPTIONS') return void res.writeHead(204, cors).end()
-    let body = ''
-    req.on('data', (d) => (body += d))
+    const parts: Buffer[] = []
+    req.on('data', (d: Buffer) => parts.push(d))
     req.on('end', async () => {
       const headers: Record<string, string> = {}
       if (req.headers.authorization) headers.authorization = req.headers.authorization
       if (req.headers['content-type']) headers['content-type'] = req.headers['content-type']
+      const all = Buffer.concat(parts)
+      // a speak's body is raw samples (BRIEF-D5.md § 3.2): passed as bytes; any other body as text
+      const body = req.headers['content-type'] === 'application/octet-stream' ? new Uint8Array(all) : all.length ? all.toString('utf8') : undefined
+      if (extra.speakDelayMs && req.url?.includes('/speak')) await sleep(extra.speakDelayMs)
       let r: { status: number; json(): Promise<unknown> }
       if (extra.signinNeeded && req.url === '/api/items') r = { status: 403, json: async () => ({ error: 'signin_needed' }) }
-      else r = await be.fetch(`${STUB}${req.url}`, { method: req.method ?? 'GET', headers, body: body === '' ? undefined : body })
+      else r = await be.fetch(`${STUB}${req.url}`, { method: req.method ?? 'GET', headers, body })
       res.writeHead(r.status, { ...cors, 'content-type': 'application/json' }).end(JSON.stringify(await r.json()))
     })
   })
@@ -72,6 +93,7 @@ interface Step {
   absent?: string // a text the drawn page must NOT contain
   before?: () => void // backend runs: change the stub before this step
   through?: boolean // other pages (Working…) may come first: wait for `expect`
+  wait?: number // ms more before the shot (the level bar fills while listening)
 }
 interface Run {
   query: string
@@ -227,6 +249,79 @@ const RUNS: Run[] = [
       { input: 'click', expect: 'SENT', contains: 'Demo: no real mail was sent', shot: '34-sent-demo-backend.png', through: true },
     ],
   },
+  // ---- day 5 (BRIEF-D5.md § 4.4): « Speak a change », paired, the dev-only clip instead of the microphone ----
+  {
+    query: `?pair=333333&clip=${CLIP}`,
+    backend: true,
+    setup: () => {
+      Object.assign(be.state, { realSend: 'on', sendOutcome: 'ok', voice: 'on', speakOutcome: 'ok' })
+      extra.speakDelayMs = 2500 // so `Rewriting…` stays up for its shot
+    },
+    steps: [
+      { expect: 'A', contains: '2 need you', through: true },
+      { input: 'click', expect: 'B', contains: 'Speak a change', shot: '35-B-four-rows.png' },
+      { input: 'down', settle: 600 },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'D', contains: 'Listening… press to stop', wait: 1300, shot: '36-D-listening.png' },
+      { input: 'click', expect: 'DW', contains: 'Rewriting…', shot: '37-D-rewriting.png' },
+      { expect: 'B', contains: 'Draft: Thursday at two works for me instead.', shot: '38-B-spoken-draft.png', through: true },
+      { input: 'click', expect: 'C', contains: 'Thursday at two works for me instead. Thanks for the update.', shot: '39-C-spoken-draft.png' },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'SENT', contains: 'Sent √', absent: 'Demo:', through: true },
+    ],
+  },
+  {
+    query: `?pair=444444&clip=${CLIP}`,
+    backend: true,
+    setup: () => {
+      Object.assign(be.state, { realSend: 'on', sendOutcome: 'ok', voice: 'on', speakOutcome: 'silence' })
+      extra.speakDelayMs = 0
+    },
+    allowConsole: /^\[fetch\] (409|422|429|502) .*http:\/\/127\.0\.0\.1:8788\/api\/items\/[^/]+\/(speak|send)(\?base=\d)?$/,
+    steps: [
+      { expect: 'A', contains: '2 need you', through: true },
+      { input: 'click', expect: 'B', contains: 'Speak a change' },
+      { input: 'down', settle: 600 },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'D', contains: 'Listening', wait: 600 },
+      { input: 'click', expect: 'DX', contains: "Didn't hear you. Press to go back.", shot: '40-D-not-heard.png', through: true },
+      { input: 'click', expect: 'B', contains: 'Speak a change' },
+      { before: () => (be.state.speakOutcome = 'failed'), input: 'down', settle: 600 },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'D', contains: 'Listening', wait: 600 },
+      { input: 'click', expect: 'DX', contains: "Couldn't change the reply. Press to go back.", shot: '41-D-failed.png', through: true },
+      { input: 'click', expect: 'B', contains: 'Speak a change' },
+      { before: () => Object.assign(be.state, { speakOutcome: 'ok', voiceDailyCap: true }), input: 'down', settle: 600 },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'D', contains: 'Listening', wait: 600 },
+      { input: 'click', expect: 'DX', contains: 'Voice limit reached. Use Other answers.', shot: '42-D-voice-limit.png', through: true },
+      { input: 'click', expect: 'B', contains: 'Speak a change' },
+      { before: () => (be.state.voiceDailyCap = false), input: 'down', settle: 600 },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'D', contains: 'Listening', wait: 600 },
+      { input: 'click', expect: 'B', contains: 'Draft: Thursday at two', through: true },
+      // the stored spoken draft goes away on the server (a newer clip elsewhere, a purge): `Send now` → 409 stale_draft
+      { before: () => be.spoken.clear(), input: 'click', expect: 'C', contains: 'Thursday at two' },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'DX', contains: 'That draft is gone. Press to go back.', shot: '43-D-draft-gone.png', through: true },
+      { input: 'click', expect: 'B', contains: 'Draft: Yes, I can cover', absent: 'Thursday' },
+    ],
+  },
+  {
+    // no `?clip=`: the simulator's own microphone, and its jail has no audio device → no audio within 5 s
+    query: '?pair=555555',
+    backend: true,
+    setup: () => Object.assign(be.state, { voice: 'on', speakOutcome: 'ok', voiceDailyCap: false }),
+    allowConsole: /audio|microphone|\bmic\b|alsa|cpal/i,
+    steps: [
+      { expect: 'A', contains: '2 need you', through: true },
+      { input: 'click', expect: 'B', contains: 'Speak a change' },
+      { input: 'down', settle: 600 },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'D', contains: 'Listening' },
+      { expect: 'DX', contains: 'No microphone. Use Other answers.', shot: '44-D-no-microphone.png' },
+    ],
+  },
 ]
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -347,6 +442,7 @@ async function main(): Promise<number> {
       console.log(`dev server up: ${base}`)
       return child
     }
+    writeClip()
     vite = await startVite(DEV, {})
     viteBackend = await startVite(DEV_BACKEND, { VITE_DATA_SOURCE: 'backend', VITE_API_BASE: STUB })
     stub = await serveStub()
@@ -395,7 +491,7 @@ async function main(): Promise<number> {
           continue
         }
         const page = await waitPage(step.expect, step.through ? 20_000 : 15_000, step.through)
-        await sleep(400) // let the frame paint
+        await sleep(400 + (step.wait ?? 0)) // let the frame paint
         const problems: string[] = []
         if (!page.ok) problems.push('the SDK refused the page')
         const blob = JSON.stringify(page.spec)
@@ -444,6 +540,11 @@ async function main(): Promise<number> {
         await new Promise((r) => child.once('exit', r))
       }
     if (stub) await new Promise((r) => stub?.close(r))
+    try {
+      unlinkSync(CLIP_FILE) // the walk's clip is never kept
+    } catch {
+      // not written
+    }
   }
 
   console.log('\nshot                        screen  png      text-lines  widest-px  result')

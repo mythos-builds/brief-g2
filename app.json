@@ -11,6 +11,10 @@
       "name": "network",
       "desc": "Fetches the items that need you and sends the replies you confirm.",
       "whitelist": ["https://brief.appfinishers.com"]
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "Records a short spoken change to a reply draft, only after you pick Speak a change."
     }
   ],
   "supported_languages": ["en"]
