@@ -6,17 +6,25 @@
 //   GMAIL_BASE=http://127.0.0.1:8799   CALENDAR_BASE=http://127.0.0.1:8799   MODEL_BASE=http://127.0.0.1:8799
 // Paths: POST /token · POST /revoke · GET /gmail/v1/users/me/labels · GET /gmail/v1/users/me/messages ·
 // GET /gmail/v1/users/me/messages/<id> · GET /calendar/v3/calendars/primary/events · POST /api/v1/chat/completions ·
-// GET /_seen (the requests received: method and path only, never a query, a header or a body).
+// POST /gmail/v1/users/me/messages/send (day 4: the one write; the decoded message is kept) ·
+// GET /_seen (the requests received: method and path only, never a query, a header or a body) ·
+// GET /_sent (the messages posted to send, decoded: [{to,from,subject,inReplyTo,references,threadId,body}]) ·
+// POST /_mode {"send":"ok"|"400"|"500"|"hang"|"401-once"} (default ok; hang answers 200 after 20 s, the message is
+// kept as soon as it arrives, like a mail that left while the answer is late; 401-once answers 401 to the next send only).
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Dataset } from '../../src/logic/types.ts';
+import { decodeWords } from '../triage/gmail.ts';
 
 export const DEV_ACCOUNT = 'demo@example.com';
 export const DEV_CLIENT_ID = 'dev-client-id';
 export const LABEL_NAME = 'brief-demo';
 export const LABEL_ID = 'Label_1';
+export const SEND_MODES = ['ok', '400', '500', 'hang', '401-once'] as const;
+export type SendMode = (typeof SEND_MODES)[number];
+export interface SentMail { to: string; from: string; subject: string; inReplyTo: string | null; references: string | null; threadId: string; body: string }
 export const SCOPE = 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.readonly';
 const BODY_MAX = 1_000_000;
 
@@ -49,7 +57,7 @@ function todayAt(hhmm: string, start: Date): number {
   return Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate(), h + 5, m);
 }
 
-function message(i: number, from: string, subject: string, body: string, at: string, start: Date): FakeMessage {
+function message(i: number, from: string, subject: string, body: string, at: string, start: Date, extra: Array<{ name: string; value: string }> = []): FakeMessage {
   const ms = todayAt(at, start);
   const id = `18c1f00000000${(0x100 + i).toString(16)}`;
   return {
@@ -63,6 +71,7 @@ function message(i: number, from: string, subject: string, body: string, at: str
         { name: 'Date', value: `${new Date(ms - 5 * 3600_000).toUTCString().slice(0, 25)} -0500` },
         { name: 'Message-ID', value: `<fake-${i}@brief-demo.invalid>` },
         { name: 'Content-Type', value: 'text/plain; charset="UTF-8"' },
+        ...extra,
       ],
       body: { size: body.length, data: b64url(body) },
     },
@@ -79,6 +88,9 @@ export function fakeMessages(start: Date): FakeMessage[] {
   });
   out.push(message(20, '"Marco Bellini" <marco@stranger.example.net>', 'Quick question', 'Can you send me the line 1 schedule? Marco', '10:30', start));
   out.push(message(21, '"Lina Chen" <other+lina@example.com>', 'Carton order', 'Hi, a word about the cartons. Lina', '10:45', start));
+  // An alias mail of the dev account that travelled over SMTP (a Received header): the sandbox rule must end it `ignored`.
+  out.push(message(22, '"Jordan Blake" <demo+jordan@example.com>', 'Smuggled order update', 'Order S-5521 moved. Jordan', '10:50', start,
+    [{ name: 'Received', value: 'from mail.stranger.example.net by mx.example.com with ESMTP; Mon, 23 Nov 2026 10:50:00 -0500' }]));
   return out;
 }
 
@@ -130,6 +142,24 @@ export function modelAnswer(body: unknown): string {
   return answers.length ? (answers[answers.length - 1].content as string) : NO_REPLY;
 }
 
+/** A posted `raw` (base64url RFC 5322 message) → the fields `/_sent` reports; null when it is not a readable message. */
+export function decodeSent(raw: unknown, threadId: unknown): SentMail | null {
+  if (typeof raw !== 'string' || !/^[A-Za-z0-9_-]+={0,2}$/.test(raw) || typeof threadId !== 'string') return null;
+  const text = Buffer.from(raw, 'base64url').toString('utf8');
+  const cut = text.indexOf('\r\n\r\n');
+  if (cut === -1) return null;
+  const heads: Record<string, string> = {};
+  for (const line of text.slice(0, cut).replace(/\r\n[ \t]+/g, ' ').split('\r\n')) {
+    const c = line.indexOf(':');
+    if (c < 1) return null;
+    heads[line.slice(0, c).toLowerCase()] = line.slice(c + 1).trim();
+  }
+  const rawBody = text.slice(cut + 4);
+  const body = (heads['content-transfer-encoding'] ?? '').toLowerCase() === 'base64'
+    ? Buffer.from(rawBody.replace(/\s+/g, ''), 'base64').toString('utf8') : rawBody;
+  return { to: heads.to ?? '', from: heads.from ?? '', subject: decodeWords(heads.subject ?? ''), inReplyTo: heads['in-reply-to'] ?? null, references: heads.references ?? null, threadId, body };
+}
+
 async function readBody(req: IncomingMessage): Promise<string | null> {
   let size = 0;
   const chunks: Buffer[] = [];
@@ -153,11 +183,13 @@ function params(raw: string, type: string | undefined): Record<string, string> {
   return Object.fromEntries(new URLSearchParams(raw));
 }
 
-export function createFake(opts: { start?: Date } = {}): Server & { seen: Array<{ method: string; path: string }> } {
+export function createFake(opts: { start?: Date; hangMs?: number } = {}): Server & { seen: Array<{ method: string; path: string }> } {
   const start = opts.start ?? new Date();
   const messages = fakeMessages(start);
   const events = fakeEvents(start);
   const seen: Array<{ method: string; path: string }> = [];
+  const sent: SentMail[] = [];
+  let mode: SendMode = 'ok';
   let n = 0;
 
   const send = (res: ServerResponse, status: number, obj: unknown): void => {
@@ -174,6 +206,35 @@ export function createFake(opts: { start?: Date } = {}): Server & { seen: Array<
     const nowS = Math.floor(Date.now() / 1000);
     try {
       if (method === 'GET' && path === '/_seen') return send(res, 200, { seen });
+      if (method === 'GET' && path === '/_sent') return send(res, 200, sent);
+      if (method === 'POST' && path === '/_mode') {
+        const raw = await readBody(req);
+        let want: unknown;
+        try { want = raw === null ? undefined : (JSON.parse(raw) as { send?: unknown }).send; } catch { want = undefined; }
+        if (typeof want !== 'string' || !(SEND_MODES as readonly string[]).includes(want)) return send(res, 400, { error: 'bad_mode' });
+        mode = want as SendMode;
+        return send(res, 200, { send: mode });
+      }
+      if (method === 'POST' && path === '/gmail/v1/users/me/messages/send') {
+        const raw = await readBody(req);
+        if (raw === null) return send(res, 413, { error: 'too_large' });
+        if (!tokenAlive(req.headers.authorization, nowS)) return send(res, 401, { error: { code: 401, status: 'UNAUTHENTICATED' } });
+        if (mode === '401-once') { mode = 'ok'; return send(res, 401, { error: { code: 401, status: 'UNAUTHENTICATED' } }); }
+        if (mode === '400') return send(res, 400, { error: { code: 400, status: 'INVALID_ARGUMENT' } });
+        if (mode === '500') return send(res, 500, { error: { code: 500, status: 'INTERNAL' } });
+        let body: { raw?: unknown; threadId?: unknown };
+        try { body = JSON.parse(raw) as { raw?: unknown; threadId?: unknown }; } catch { return send(res, 400, { error: { code: 400, status: 'INVALID_ARGUMENT' } }); }
+        const mail = decodeSent(body.raw, body.threadId);
+        if (!mail) return send(res, 400, { error: { code: 400, status: 'INVALID_ARGUMENT' } });
+        sent.push(mail);
+        const answer = { id: `18c2f00000000${(0x100 + sent.length).toString(16)}`, threadId: mail.threadId, labelIds: ['SENT'] };
+        if (mode === 'hang') {
+          const t = setTimeout(() => { if (!res.destroyed) send(res, 200, answer); }, opts.hangMs ?? 20_000);
+          t.unref();
+          return;
+        }
+        return send(res, 200, answer);
+      }
 
       if (method === 'POST' && (path === '/token' || path === '/revoke' || path === '/api/v1/chat/completions')) {
         const raw = await readBody(req);
@@ -217,7 +278,14 @@ export function createFake(opts: { start?: Date } = {}): Server & { seen: Array<
         const mm = /^\/gmail\/v1\/users\/me\/messages\/([A-Za-z0-9_-]{1,64})$/.exec(path);
         if (mm) {
           const m = messages.find((x) => x.id === mm[1]);
-          return m ? send(res, 200, m) : send(res, 404, { error: { code: 404, status: 'NOT_FOUND' } });
+          if (!m) return send(res, 404, { error: { code: 404, status: 'NOT_FOUND' } });
+          if (url.searchParams.get('format') === 'metadata') {
+            // only the headers asked for, like Google (matched without case); nothing else of the payload
+            const want = url.searchParams.getAll('metadataHeaders').map((h) => h.toLowerCase());
+            const headers = (m.payload as { headers: Array<{ name: string; value: string }> }).headers.filter((h) => want.includes(h.name.toLowerCase()));
+            return send(res, 200, { id: m.id, threadId: m.threadId, labelIds: m.labelIds, internalDate: m.internalDate, payload: { headers } });
+          }
+          return send(res, 200, m);
         }
         if (path === '/calendar/v3/calendars/primary/events') {
           const tMin = Date.parse(url.searchParams.get('timeMin') ?? '') || -Infinity;
@@ -256,7 +324,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const port = typeof a === 'object' && a ? a.port : 0;
     console.log(`fake-upstreams listening on http://127.0.0.1:${port}`);
   });
-  const stop = (): void => { server.close(() => process.exit(0)); };
+  const stop = (): void => { server.close(() => process.exit(0)); server.closeAllConnections(); };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
 }

@@ -219,6 +219,33 @@ function timeOf(dateHeader: string | undefined, receivedAt: number): string {
   return new Date(receivedAt * 1000).toISOString().slice(11, 16);
 }
 
+/**
+ * The sender gate, shared by fromGmail and the send: exactly one From header, the strict address parser, tag removed and
+ * lower-cased hashing to selfHash, the tag a persona key. alias = local+tag@domain (lower-case), self = local@domain.
+ * Any doubt (including a throw) → null. A bare account address (no tag) → null.
+ */
+export async function senderAlias(
+  headers: { name: string; value: string }[],
+  selfHash: string,
+  personas: Persona[],
+): Promise<{ alias: string; self: string; persona: Persona } | null> {
+  try {
+    if (!Array.isArray(headers) || !Array.isArray(personas) || typeof selfHash !== 'string') return null;
+    const froms = headers.filter((h) => isObj(h) && typeof h.name === 'string' && typeof h.value === 'string' && h.name.toLowerCase() === 'from');
+    if (froms.length !== 1) return null;
+    const addr = fromAddress(froms[0].value);
+    if (!addr) return null;
+    const split = splitTag(addr);
+    if (!split) return null;
+    if ((await sha256Hex(split.base)) !== selfHash.toLowerCase()) return null;
+    const persona = personas.find((p) => isObj(p) && p.key === split.tag);
+    if (!persona) return null;
+    return { alias: addr, self: split.base, persona: { ...persona } };
+  } catch {
+    return null;
+  }
+}
+
 export async function fromGmail(msg: unknown, selfHash: string, personas: Persona[]): Promise<SeenMail | null> {
   try {
     if (!isObj(msg) || !Array.isArray(personas) || typeof selfHash !== 'string') return null;
@@ -232,15 +259,14 @@ export async function fromGmail(msg: unknown, selfHash: string, personas: Person
     const headers = headersOf(payload as Part);
     if (!headers) return null;
 
-    const froms = headers.filter((h) => h.name.toLowerCase() === 'from');
-    if (froms.length !== 1) return null;
-    const addr = fromAddress(froms[0].value);
-    if (!addr) return null;
-    const split = splitTag(addr);
-    if (!split) return null;
-    if ((await sha256Hex(split.base)) !== selfHash.toLowerCase()) return null;
-    const persona = personas.find((p) => isObj(p) && p.key === split.tag);
-    if (!persona) return null;
+    if (Array.isArray((msg as { labelIds?: unknown }).labelIds)) {
+      for (const l of (msg as { labelIds: unknown[] }).labelIds) if (l === 'SPAM' || l === 'TRASH') return null;
+    }
+    // Sandbox rule: only the owner's own IMAP append fills the label (no Received); a mail that travelled over SMTP is not ours.
+    if (headers.some((h) => { const n = h.name.toLowerCase(); return n === 'received' || n === 'x-received'; })) return null;
+    const who = await senderAlias(headers, selfHash, personas);
+    if (!who) return null;
+    const persona = who.persona;
 
     const subjects = headers.filter((h) => h.name.toLowerCase() === 'subject');
     if (subjects.length > 1) return null;
@@ -261,7 +287,7 @@ export async function fromGmail(msg: unknown, selfHash: string, personas: Person
 
     const dateHeader = headers.find((h) => h.name.toLowerCase() === 'date')?.value;
     const item: MailItem = { kind: 'mail', from: persona.key, fromName: persona.fullName, at: timeOf(dateHeader, receivedAt), subject, body };
-    return { id, threadId, persona: { ...persona }, receivedAt, item };
+    return { id, threadId, persona, receivedAt, item };
   } catch {
     return null;
   }

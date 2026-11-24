@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { fromGmail, fromAddress, sha256Hex, b64Bytes, BODY_MAX } from './gmail.ts';
+import { fromGmail, fromAddress, sha256Hex, b64Bytes, senderAlias, BODY_MAX } from './gmail.ts';
 import type { Persona } from './gmail.ts';
 
 const FX = JSON.parse(readFileSync(new URL('./fixtures/gmail-messages.json', import.meta.url), 'utf8')) as { messages: Record<string, Record<string, unknown>> };
@@ -119,5 +119,67 @@ test('a deep or huge part tree → null', async () => {
   (m.payload as Record<string, unknown>).mimeType = 'multipart/mixed';
   (m.payload as Record<string, unknown>).parts = [p];
   (m.payload as Record<string, unknown>).body = {};
+  assert.equal(await fromGmail(m, SELF, PERSONAS), null);
+});
+
+// ---- Day 4: senderAlias and the sandbox rule (BRIEF-D4 3.5) ----
+const H = (m: Record<string, unknown>) => (m.payload as { headers: { name: string; value: string }[] }).headers;
+
+test('senderAlias: alias, self and persona for an own alias; every doubt → null', async () => {
+  const r = await senderAlias(H(M('plain')), SELF, PERSONAS);
+  assert.ok(r);
+  assert.equal(r.alias, 'demo+marco@example.com');
+  assert.equal(r.self, 'demo@example.com');
+  assert.equal(r.persona.key, 'marco');
+  const up = await senderAlias(H(M('upper_case')), SELF, PERSONAS);
+  if (up) assert.equal(up.alias, up.alias.toLowerCase());
+  for (const name of ['stranger', 'other_account', 'unknown_tag', 'no_tag', 'two_from', 'odd_tag', 'second_plus', 'tag_with_space', 'group', 'name_holds_alias']) {
+    assert.equal(await senderAlias(H(M(name)), SELF, PERSONAS), null, name);
+  }
+  assert.equal(await senderAlias([], SELF, PERSONAS), null);
+  assert.equal(await senderAlias(H(M('plain')), 'f'.repeat(64), PERSONAS), null);
+  assert.equal(await senderAlias(null as never, SELF, PERSONAS), null);
+  assert.equal(await senderAlias([{ name: 'From', value: 5 as never }], SELF, PERSONAS), null);
+});
+
+test('senderAlias returns a copy of the persona, not the caller\'s object', async () => {
+  const r = await senderAlias(H(M('plain')), SELF, PERSONAS);
+  assert.ok(r && r.persona !== PERSONAS.find((p) => p.key === 'marco'));
+});
+
+// The appended shape of fact 1.8: Content-Transfer-Encoding, Content-Type, Date, From, Message-ID, MIME-Version, Subject, To.
+function appended(): Record<string, unknown> {
+  const m = M('plain');
+  (m.payload as { headers: unknown }).headers = [
+    { name: 'Content-Transfer-Encoding', value: '8bit' }, { name: 'Content-Type', value: 'text/plain; charset="UTF-8"' },
+    { name: 'Date', value: 'Mon, 23 Nov 2026 11:02:00 -0500' }, { name: 'From', value: '"Marco Bellini" <demo+marco@example.com>' },
+    { name: 'Message-ID', value: '<seed-1@example.com>' }, { name: 'MIME-Version', value: '1.0' },
+    { name: 'Subject', value: 'Friday 6 am' }, { name: 'To', value: 'demo@example.com' },
+  ];
+  return m;
+}
+const withHeader = (m: Record<string, unknown>, name: string): Record<string, unknown> => { H(m).push({ name, value: 'from x.example.net by mx.example.net with SMTP; Mon, 23 Nov 2026 11:02:00 -0500' }); return m; };
+
+test('sandbox rule: the appended shape is accepted; a Received / X-Received header (any case) → null', async () => {
+  assert.equal((await fromGmail(appended(), SELF, PERSONAS))?.persona.key, 'marco');
+  for (const name of ['Received', 'received', 'X-Received', 'x-received', 'X-RECEIVED']) {
+    assert.equal(await fromGmail(withHeader(appended(), name), SELF, PERSONAS), null, name);
+  }
+});
+
+test('sandbox rule: labelIds with SPAM or TRASH → null; other labels stay accepted', async () => {
+  for (const l of ['SPAM', 'TRASH']) {
+    const m = appended(); m.labelIds = ['Label_1', l];
+    assert.equal(await fromGmail(m, SELF, PERSONAS), null, l);
+  }
+  const ok = appended(); ok.labelIds = ['Label_1', 'UNREAD', 'INBOX'];
+  assert.ok(await fromGmail(ok, SELF, PERSONAS));
+});
+
+test('sandbox rule: a mail From the bare account address (our own reply coming back) → null', async () => {
+  const m = appended();
+  H(m)[3].value = 'demo@example.com';
+  assert.equal(await fromGmail(m, SELF, PERSONAS), null);
+  H(m)[3].value = '"Demo" <demo@example.com>';
   assert.equal(await fromGmail(m, SELF, PERSONAS), null);
 });

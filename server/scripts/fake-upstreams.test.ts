@@ -59,7 +59,7 @@ test('fake-upstreams: every path once, answers usable, /_seen lists method and p
     const label = labels.labels.find((l) => l.name === 'brief-demo');
     assert.ok(label);
     const list = await (await fetch(`${base}/gmail/v1/users/me/messages?labelIds=${label.id}&maxResults=20`, auth)).json() as { messages: Array<{ id: string }> };
-    assert.equal(list.messages.length, 6);
+    assert.equal(list.messages.length, 7);
     const self = await sha256Hex('demo@example.com');
     const kept: string[] = [];
     let ignored = 0;
@@ -69,7 +69,7 @@ test('fake-upstreams: every path once, answers usable, /_seen lists method and p
       if (seen) kept.push(seen.persona.key); else ignored += 1;
     }
     assert.deepEqual(kept.sort(), ['jordan', 'lina', 'marco', 'priya']);
-    assert.equal(ignored, 2);
+    assert.equal(ignored, 3); // stranger, other account, and the alias mail with a Received header (sandbox rule)
     assert.equal((await fetch(`${base}/gmail/v1/users/me/messages/nope`, auth)).status, 404);
 
     // Calendar: two events made by the account, guests demo+lina (5 min) and demo+priya (3 h)
@@ -95,6 +95,104 @@ test('fake-upstreams: every path once, answers usable, /_seen lists method and p
     for (const p of ['POST /token', 'POST /revoke', 'GET /gmail/v1/users/me/labels', 'GET /gmail/v1/users/me/messages', 'GET /calendar/v3/calendars/primary/events', 'POST /api/v1/chat/completions']) assert.ok(paths.has(p), p);
     assert.ok(seen.seen.every((s) => !s.path.includes('?') && Object.keys(s).join(',') === 'method,path'));
     assert.equal((await fetch(`${base}/elsewhere`)).status, 404);
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((resolve) => (child.exitCode !== null ? resolve(null) : child.once('exit', resolve)));
+  }
+});
+
+// ---- Day 4 (BRIEF-D4 3.10): metadata get, the send, /_sent, /_mode ----
+function b64(s: string): string { return Buffer.from(s, 'utf8').toString('base64'); }
+function rawMail(o: { to: string; from: string; subject: string; body: string; inReplyTo?: string; references?: string }): string {
+  const lines = [`From: ${o.from}`, `To: ${o.to}`, `Subject: ${o.subject}`];
+  if (o.inReplyTo) lines.push(`In-Reply-To: ${o.inReplyTo}`);
+  if (o.references) lines.push(`References: ${o.references}`);
+  lines.push('MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64');
+  return Buffer.from(`${lines.join('\r\n')}\r\n\r\n${b64(o.body)}\r\n`, 'utf8').toString('base64url');
+}
+
+test('fake-upstreams: metadata get, send, /_sent, every /_mode, then stopped', async () => {
+  const child = spawn(process.execPath, ['scripts/fake-upstreams.ts', '--port', '0'], { cwd: SERVER, env: { PATH: process.env.PATH ?? '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    const base = await new Promise<string>((resolve, reject) => {
+      let out = '';
+      const timer = setTimeout(() => reject(new Error(`no listen line: ${out}`)), 5000);
+      child.stdout.on('data', (d: Buffer) => {
+        out += d.toString();
+        const m = /listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
+        if (m) { clearTimeout(timer); resolve(m[1]); }
+      });
+      child.on('exit', (c) => { clearTimeout(timer); reject(new Error(`exited ${c}: ${out}`)); });
+    });
+    const tok = await (await fetch(`${base}/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'grant_type=authorization_code&code=good' })).json() as { access_token: string };
+    const auth = { authorization: `Bearer ${tok.access_token}` };
+    const post = (path: string, obj: unknown, headers: Record<string, string> = auth, signal?: AbortSignal) =>
+      fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(obj), signal });
+    const setMode = async (send: string) => (await post('/_mode', { send }, {})).status;
+    const sent = async () => await (await fetch(`${base}/_sent`)).json() as Array<Record<string, unknown>>;
+
+    // every fixture mail has a Message-ID; format=metadata answers only the headers asked for
+    const list = await (await fetch(`${base}/gmail/v1/users/me/messages?labelIds=Label_1&maxResults=20`, { headers: auth })).json() as { messages: Array<{ id: string }> };
+    const ids: string[] = [];
+    for (const { id } of list.messages) {
+      const full = await (await fetch(`${base}/gmail/v1/users/me/messages/${id}?format=full`, { headers: auth })).json() as { payload: { headers: Array<{ name: string }> } };
+      assert.ok(full.payload.headers.some((h) => h.name === 'Message-ID'), id);
+      ids.push(id);
+    }
+    const meta = await (await fetch(`${base}/gmail/v1/users/me/messages/${ids[0]}?format=metadata&metadataHeaders=From&metadataHeaders=subject&metadataHeaders=Message-ID&metadataHeaders=References`, { headers: auth })).json() as { id: string; threadId: string; payload: { headers: Array<{ name: string; value: string }>; body?: unknown } };
+    assert.equal(meta.id, ids[0]);
+    assert.deepEqual(meta.payload.headers.map((h) => h.name.toLowerCase()).sort(), ['from', 'message-id', 'subject']); // no References on a fixture mail
+    assert.equal(meta.payload.body, undefined);
+    assert.equal((await fetch(`${base}/gmail/v1/users/me/messages/${ids[0]}?format=metadata`, { headers: auth }).then((r) => r.json()) as { payload: { headers: unknown[] } }).payload.headers.length, 0);
+    assert.equal((await fetch(`${base}/gmail/v1/users/me/messages/nope?format=metadata`, { headers: auth })).status, 404);
+
+    // the sandbox fixture: an alias mail with Received → fromGmail says ignored
+    const self = await sha256Hex('demo@example.com');
+    const withReceived = (await Promise.all(ids.map(async (id) => (await fetch(`${base}/gmail/v1/users/me/messages/${id}?format=full`, { headers: auth })).json() as { payload: { headers: Array<{ name: string }> } })))
+      .filter((m) => m.payload.headers.some((h) => h.name === 'Received'));
+    assert.equal(withReceived.length, 1);
+    assert.equal(await fromGmail(withReceived[0], self, PERSONAS), null);
+
+    // /_sent starts empty; send needs a live token
+    assert.deepEqual(await sent(), []);
+    const mail = rawMail({ to: 'demo+marco@example.com', from: 'demo@example.com', subject: '=?UTF-8?B?UmU6IENhZsOp?=', body: 'Yes, I can cover.\n\n-- \nSent from my glasses with Brief', inReplyTo: '<fake-0@brief-demo.invalid>', references: '<a@x.invalid> <fake-0@brief-demo.invalid>' });
+    assert.equal((await post('/gmail/v1/users/me/messages/send', { raw: mail, threadId: ids[0] }, {})).status, 401);
+    assert.deepEqual(await sent(), []);
+
+    // ok: 200 {id, threadId, labelIds:[SENT]}, the decoded message is kept
+    let r = await post('/gmail/v1/users/me/messages/send', { raw: mail, threadId: ids[0] });
+    assert.equal(r.status, 200);
+    const ans = await r.json() as { id: string; threadId: string; labelIds: string[] };
+    assert.ok(ans.id.length > 3);
+    assert.equal(ans.threadId, ids[0]);
+    assert.deepEqual(ans.labelIds, ['SENT']);
+    assert.deepEqual(await sent(), [{ to: 'demo+marco@example.com', from: 'demo@example.com', subject: 'Re: Café', inReplyTo: '<fake-0@brief-demo.invalid>', references: '<a@x.invalid> <fake-0@brief-demo.invalid>', threadId: ids[0], body: 'Yes, I can cover.\n\n-- \nSent from my glasses with Brief' }]);
+    // a body that is not a message → 400, nothing kept
+    assert.equal((await post('/gmail/v1/users/me/messages/send', { raw: 'not a message!', threadId: 'x' })).status, 400);
+    assert.equal((await post('/gmail/v1/users/me/messages/send', { threadId: 'x' })).status, 400);
+    assert.equal((await sent()).length, 1);
+
+    // modes: bad value → 400, mode unchanged
+    assert.equal(await setMode('nope'), 400);
+    assert.equal(await setMode('400'), 200);
+    assert.equal((await post('/gmail/v1/users/me/messages/send', { raw: mail, threadId: ids[0] })).status, 400);
+    assert.equal(await setMode('500'), 200);
+    assert.equal((await post('/gmail/v1/users/me/messages/send', { raw: mail, threadId: ids[0] })).status, 500);
+    assert.equal((await sent()).length, 1, '400 and 500 keep nothing');
+    assert.equal(await setMode('401-once'), 200);
+    assert.equal((await post('/gmail/v1/users/me/messages/send', { raw: mail, threadId: ids[0] })).status, 401);
+    assert.equal((await post('/gmail/v1/users/me/messages/send', { raw: mail, threadId: ids[0] })).status, 200); // back to ok by itself
+    assert.equal((await sent()).length, 2);
+    // hang: the message is kept at once, the answer comes after 20 s (we give up after 400 ms)
+    assert.equal(await setMode('hang'), 200);
+    await assert.rejects(post('/gmail/v1/users/me/messages/send', { raw: mail, threadId: ids[0] }, auth, AbortSignal.timeout(400)));
+    assert.equal((await sent()).length, 3);
+    assert.equal(await setMode('ok'), 200);
+
+    // /_seen lists every send call, method and path only
+    const seen = await (await fetch(`${base}/_seen`)).json() as { seen: Array<{ method: string; path: string }> };
+    assert.equal(seen.seen.filter((x) => x.method === 'POST' && x.path === '/gmail/v1/users/me/messages/send').length, 9);
+    assert.ok(seen.seen.every((x) => !x.path.includes('?') && Object.keys(x).join(',') === 'method,path'));
   } finally {
     child.kill('SIGTERM');
     await new Promise((resolve) => (child.exitCode !== null ? resolve(null) : child.once('exit', resolve)));
