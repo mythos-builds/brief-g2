@@ -53,7 +53,7 @@ a line that tripped twice, and a supplier call starts at 14:00. All of them are 
 
 - **Reads: Gmail and Google Calendar.** Every two minutes the server reads one Gmail label and the primary calendar
   of the signed-in account, with read-only scopes. Each new mail is triaged once by a language model: does it need a
-  reply from you, a six-word summary, a draft, four other answers. Every answer is checked before it is stored
+  reply from you, a summary of six words at most, a draft, four other answers. Every answer is checked before it is stored
   (length, allowed characters, no link) and checked again before it is served.
 - **Writes: Gmail.** `Send`, then `Send now`: one reply leaves through the Gmail API (scope `gmail.send`), in the
   original thread, signed `Sent from my glasses with Brief`. Two presses at the same moment still give one mail.
@@ -61,7 +61,8 @@ a line that tripped twice, and a supplier call starts at 14:00. All of them are 
   has the reply rewritten from it. The clip and its text are not kept; only the new draft is, and it goes through
   the same two presses.
 - **Briefs you before a meeting.** From ten minutes before a calendar event until it starts: who, why, and the last
-  thing said.
+  thing said. In this build a brief is written only for a timed event that you created or organize and that invites
+  one of the sandbox contacts.
 - **Fails in plain words.** `No connection — retrying` retries by itself. `Not sent. Send now to try again.` when a
   send failed. `Not confirmed. Check Sent on your phone.` when Gmail did not answer in time: a send is never retried
   on its own. `Sign-in needed` comes with its steps. Never an error code on the glasses.
@@ -79,8 +80,9 @@ evenhub-simulator https://brief.appfinishers.com/app/
 tools/sim.sh start https://brief.appfinishers.com/app/
 ```
 
-Scroll to move the highlight, press to choose, double-press to leave. `Speak a change` needs an audio input: we drive
-it with a virtual microphone (`SIM_MIC=1`, see « Known limits »); a desktop microphone is not checked.
+Scroll to move the highlight, press to choose. A double press asks for the system's exit dialog (and turns the
+microphone off first if the glasses were listening). `Speak a change` needs an audio input: we drive it with a virtual
+microphone (`SIM_MIC=1`, see « Known limits »); a desktop microphone is not checked.
 
 On G2 glasses the vendor's CLI prints a development QR code for the Even app:
 `evenhub qr --url https://brief.appfinishers.com/app/`. We have not checked that path: see « Not checked yet ».
@@ -119,31 +121,37 @@ flowchart LR
   its revision), never a text. The server sends the stored reply with that number, or refuses.
 - **The server picks the recipient.** It is computed from Gmail's own copy of the mail, never from the request. No
   Cc, no Bcc, no Reply-To.
-- **A sandbox for the contest.** A real send reaches only the signed-in account's own plus-aliases, behind a switch
-  (`REAL_SEND`, off by default) and a daily cap. The sync skips any mail that travelled over SMTP, or sits in Spam or
-  Trash: it reads only what the owner placed in the label. So no real person's mail reaches a model in this build.
-- **Little is stored.** Gmail ids, the checked summary and replies, times and states. Never a mail body, a subject,
-  an address or a token in clear: tokens and codes are kept as SHA-256, the Google refresh token under AES-256-GCM,
+- **A sandbox for the contest.** Each contact is one of the signed-in account's own plus-aliases under an invented
+  name: the glasses show the invented address, and a real send reaches only that alias, behind a switch (`REAL_SEND`,
+  off by default) and a daily cap. The sync skips any mail that travelled over SMTP, or sits in Spam or Trash: it reads
+  only what the owner placed in the label. So no real person's mail reaches a model in this build.
+- **Little is stored.** Gmail ids, the checked summary and replies, calendar event titles and the checked brief
+  lines, a spoken draft, times and states. Never a mail body, a mail subject, an address or a token in clear: tokens and codes are kept as SHA-256, the Google refresh token under AES-256-GCM,
   addresses as hashes (a pseudonym, not anonymity: `server/worker/README.md`, « Known limits »).
 - **Strangers are turned away.** An account that is not on the allow-list gets a refusal page, none of its
   tokens is stored, and the server asks Google at once to revoke its grant.
 - **The microphone is off by default.** It opens only after you pick `Speak a change` and closes on every way out.
   The clip and what was heard are not stored and not logged.
-- **Quiet logs, hard limits.** A log line carries a route and a status, never a token, an address, a mail or a
-  spoken word. Sends, clips, model requests and Workers AI units all have a daily cap.
+- **Quiet logs, hard limits.** A log line carries a route, a status, a code or a count; never a token, an address, a
+  mail or a spoken word. Sends (20 a day per account), model requests (30 a day), clips (40 a day per network
+  address) and Workers AI units (3,000 a day) all have a daily cap.
 
 ## What existed before Nov 23
 
-The contest's build week started on 2026-11-23 at 03:00 EST (12:00 in Dubai). The first commit here is from 03:16 that
-day.
+The contest's build week started on 2026-11-23 at 03:00 EST (12:00 in Dubai). No app code existed before that. The
+first two commits here are from 03:16 that day, about 3,500 lines: two builder agents wrote them in parallel, from
+03:00, out of the design notes listed below.
 
-Brought into this repository on 2026-11-23 so a clone runs on its own; their content is unchanged except the paths:
+Brought into this repository on 2026-11-23 so a clone runs on its own; their content was unchanged that day except the
+paths, and each later change is listed with its item:
 
 - `tools/sim.sh`, `tools/sim-container/Containerfile`, `tools/package.json`, `tools/package-lock.json`: the simulator
   launcher (dev tooling written 2026-11-18). It runs the official Even Hub simulator in a podman container on our
   machine. Day 2 changes: the simulator binary is found next to the script (`tools/node_modules`, was a path in our home
   folder) and the two package versions are pinned exact (`@evenrealities/evenhub-cli` 0.2.0,
-  `@evenrealities/evenhub-simulator` 0.9.5, were `^` ranges).
+  `@evenrealities/evenhub-simulator` 0.9.5, were `^` ranges). Changed again during the build week: the address and the
+  port passed as arguments and a storage volume (day 4), a virtual microphone (day 5: `SIM_MIC=1`, `sim.sh speak`,
+  `tools/sim-container/Containerfile.mic`, `tools/mic-probe/`).
 - `demo/dataset.json` and `demo/README.md`: the fictional demo dataset (written 2026-11-19; every person, company and
   address in it is invented). `src/data/dataset.json` is a byte-identical copy (a test checks it).
 - The design notes (screens, gestures and plan, written as text before the build week; kept outside this repository).
