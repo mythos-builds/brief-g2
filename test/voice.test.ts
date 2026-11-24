@@ -335,6 +335,32 @@ for (const [name, run, reason, bytes] of WAYS)
     assert.equal(t.log.filter((l) => l === 'audioControl(false)').length, 1)
   })
 
+// Day-5 gate, seen in the simulator on the deployed app: after one send the next mail had three rows only.
+test('3.10: `Send now` and `Skip` keep the voice flag, so the NEXT mail still offers `Speak a change`', () => {
+  for (const pick of ['send', 'skip'] as const) {
+    let s: AppState = { items: ITEMS, sent: [], voice: true, screen: { kind: 'mail', id: ITEMS[0].id, draft: ITEMS[0].draft } }
+    if (pick === 'send') {
+      s = reduce(s, { type: 'press', list: 'act', index: 0, label: ACT_SEND }).state
+      assert.equal(s.screen.kind, 'confirm')
+      const step = reduce(s, { type: 'press', list: 'ok', index: 1, label: SEND_NOW })
+      assert.equal(step.effect, 'fake-send')
+      s = reduce(step.state, { type: 'tick' }).state
+    } else {
+      const rows = actItems(ITEMS[0], ITEMS[0].draft, true)
+      const step = reduce(s, { type: 'press', list: 'act', index: rows.indexOf(ACT_SKIP), label: ACT_SKIP })
+      assert.equal(step.effect, 'skip')
+      s = step.state
+    }
+    assert.equal(s.voice, true, `${pick}: the flag is kept`)
+    assert.equal(s.screen.kind, 'mail')
+    const next = s.screen as MailScreen
+    assert.notEqual(next.id, ITEMS[0].id)
+    const spec = pageFor(s, ctx)
+    const list = spec.boxes.find((b) => b.kind === 'list') as { items: string[] }
+    assert.ok(list.items.includes(ACT_SPEAK), `${pick}: the next mail offers Speak a change`)
+  }
+})
+
 // D5 test row 41: with the simulator's virtual microphone the first audio event came up to 2.0 s after the start
 // (measured), so the first build's 2 s watch said `No microphone` on a microphone that worked.
 test('microphone: a first sound 2.5 s after the start is kept, the watch stays quiet; no sound at all still ends at 5 s', async () => {

@@ -129,7 +129,9 @@ export function reduce(state: AppState, input: Input, briefPages = 2): Step {
       if (label === SEND_NOW && input.list === LIST_OF.confirm && input.label === SEND_NOW) {
         const at = state.items.findIndex((i) => i.id === item.id)
         const items = state.items.filter((i) => i.id !== item.id)
-        const next: AppState = { items, sent: [...state.sent, { id: item.id, draft: s.draft }], screen: state.screen }
+        // `...state` first: everything else of the state stays (the `voice` flag: without it « Speak a change » was gone
+        // from the next mail after a send, seen in the simulator at the day-5 gate)
+        const next: AppState = { ...state, items, sent: [...state.sent, { id: item.id, draft: s.draft }] }
         return go(next, { kind: 'sent', id: item.id, source: item.source, nextIndex: at, real: false }, 'fake-send')
       }
       return stay(state)

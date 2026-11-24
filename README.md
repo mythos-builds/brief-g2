@@ -116,8 +116,15 @@ simulator (0.9.5) draws no dialog: the glasses canvas goes black. What the real 
 - « Speak a change »: what the user said is read only by their own eyes on B and C: the server's check
   (`checkSpoken`) refuses a link, a long text or an unsafe one, but cannot know a wrong hour or a promise the user did not
   make; `Send` → `Send now` stays the only way out. English only, no live text while speaking. The microphone path was
-  walked in the simulator with the dev-only clip only (its jail has no audio device); the real glasses' microphone and
-  its chunk size are not checked here. Limits (the server's): 12 clips per session per hour, 30 per address per hour and 40 per
+  walked two ways: the screenshot walk uses the dev-only clip, and at the day-5 gate the deployed app ran in the
+  simulator with a virtual microphone (below): a synthetic voice clip played into it was heard, the reply rewritten,
+  shown as `Draft:` and sent as a demo send. There the first sound came 0.6 to 2.0 s after the start, so the « no
+  microphone » watch is 5 s. The real glasses' microphone, its delay and its chunk size are not checked here.
+  Voice in the simulator: build once `podman build -t localhost/er-sim:mic -f tools/sim-container/Containerfile.mic
+  tools/sim-container`, then `SIM_MIC=1 tools/sim.sh start <url>`. The app gets 100 ms audio events (silence between
+  clips; silence reads as a constant 128, not 0). `tools/sim.sh speak clip.wav` plays a 16 kHz mono WAV into it at real
+  speed (start the clip with about 2.5 s of silence: sound played before the microphone has started is lost).
+  `tools/mic-probe/serve.sh` serves a console probe. Limits (the server's): 12 clips per session per hour, 30 per address per hour and 40 per
   address per day, a daily budget of Workers AI units for all users (`VOICE_DAILY_NEURONS`).
 
 - The exit dialog (double press) draws nothing in the simulator 0.9.5 (`19-double-press-sim.png` is black); real glasses not checked.
