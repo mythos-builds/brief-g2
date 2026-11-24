@@ -1,6 +1,6 @@
 // The sync (BRIEF-D3 § 3.5): runs from the `scheduled` handler only, never from a route. For each account whose grant
-// is alive: an access token (cached sealed), the label id, up to 5 new messages triaged ONCE, the calendar's next 24 h,
-// up to 2 meeting briefs. 40 outgoing requests per run at most (Google and model together); at the cap it stops
+// is alive: an access token (cached sealed), the label id, up to NEW_PER_RUN new messages triaged ONCE, the calendar's
+// next 24 h, up to BRIEFS_PER_RUN meeting briefs. 40 outgoing requests per run at most (Google and model together); at the cap it stops
 // cleanly. Logs: step names, counts and codes only; never a body, a subject, an address or a token.
 import type { BriefInput, BriefResult } from '../../triage/brief.ts'
 import { allBudgets, dailyBudget, dayKey } from '../../triage/budget.ts'
@@ -22,6 +22,7 @@ import {
   type Upstreams,
   upstreams,
 } from './google.ts'
+import { allowedHashes } from './paired.ts'
 import { displayTz, hhmm, PERSONAS, type Persona } from './personas.ts'
 import { counterValue, d1CounterStore, d1ResultStore } from './stores.ts'
 
@@ -32,19 +33,38 @@ export interface SyncModules {
   validBrief(v: unknown): BriefResult | null
 }
 
+// BRIEF-D4 § 6.3 (day-3 open item 3). Cloudflare's FREE-plan limits, read 2026-11-23:
+// - developers.cloudflare.com/workers/platform/limits/: « CPU time per Cron Trigger | 10 ms » (Free; the split by
+//   interval, « 5 min (default: 30 seconds) for intervals under 1 hour » / « 15 min for intervals of 1 hour or more »,
+//   is the PAID column) · « Scheduled Workers have a maximum wall time of 15 minutes per invocation » · « Subrequests
+//   per invocation | 50 » (Free), and 1,000 to internal services · « A subrequest is any request a Worker makes using
+//   the Fetch API or to Cloudflare services like R2, KV, or D1 » · « Each subrequest in a redirect chain counts
+//   against this limit » · ctx.waitUntil() « can extend execution for up to 30 seconds ».
+// - developers.cloudflare.com/workers/configuration/cron-triggers/: no duration of its own (« Refer to Workers limits »).
+// - developers.cloudflare.com/d1/platform/limits/: « Queries per Worker invocation (read subrequest limits) » 50 (Free);
+//   « a db.batch() call counts as a single query against it, not one query per statement »; « Maximum SQL query
+//   duration | 30 seconds ».
+// A worst-case run (NEW_PER_RUN messages, BRIEFS_PER_RUN briefs, the calendar) is counted by test/limits-d4.test.ts
+// and must stay 20 % under each. D4 review, FIX 1: by the quotes above a D1 query IS a subrequest, so outgoing
+// requests and D1 queries share the one budget of 50 and their SUM is held to 40 (the safe reading; « separate pools »
+// is NOT CONFIRMED). Also ≤ 40 outgoing requests, ≤ 40 D1 queries, and a wall time ≤ 24 s (the 30 s that
+// waitUntil may be held to; the scheduled handler now awaits the run itself, index.ts). CPU time (10 ms) cannot be
+// measured locally: NOT CHECKED.
+export const CF_FREE = { subrequests: 50, d1Queries: 50, waitUntilS: 30, cronWallS: 15 * 60, cronCpuMs: 10 }
 export const RUN_MAX_REQUESTS = 40
-export const NEW_PER_RUN = 5
-export const BRIEFS_PER_RUN = 2
+// D4 review, FIX 1: 4 messages + 2 briefs = 20 requests + 39 D1 queries = 59 > 50; 2 + 1 = 12 + 23 = 35 ≤ 40
+export const NEW_PER_RUN = 2
+export const BRIEFS_PER_RUN = 1
 export const MAX_TRIES = 3
 export const TOKEN_MARGIN = 300 // renew the access token when under 5 minutes are left
 export const LEASE = 300 // a claim older than this is abandoned (a run that died)
 export const DEFAULT_DAILY_CAP = 30
-// D3 review, finding 3: a scheduled run must end well inside the platform's wall-time limit for a cron that runs
-// more often than hourly (the reviewer remembers 30 s; NOT CHECKED, no network). No new model call starts after
-// MODEL_START_BEFORE_S seconds of run; each model call gets a deadline that ends the run by RUN_WALL_S. What is left
+// D3 review, finding 3, checked on day 4 (the quotes above): the Free plan gives a scheduled run 15 minutes of wall
+// time, but work held by ctx.waitUntil may be cut at 30 s, so the run is kept under 24 s. No new model call starts
+// after MODEL_START_BEFORE_S seconds of run; each model call gets a deadline that ends it by RUN_WALL_S. What is left
 // waits for the next run (2 minutes later), unclaimed.
-export const RUN_WALL_S = 25
-export const MODEL_START_BEFORE_S = 15
+export const RUN_WALL_S = 22 // day 4: was 25; the last model call ends by 22 s, the run by 24 s at worst (20 % under 30 s)
+export const MODEL_START_BEFORE_S = 12 // day 4: was 15; the last model call still gets 10 s or more
 const DAY_PREFIX = 'triage'
 
 export interface SyncReport {
@@ -221,7 +241,7 @@ class Run {
     return found.id
   }
 
-  /** c. Up to 5 messages not yet stored: get → fromGmail → ignored, or claimed → triageOnce → done. */
+  /** c. Up to NEW_PER_RUN messages not yet stored: get → fromGmail → ignored, or claimed → triageOnce → done. */
   async messages(a: AccountRow, g: GoogleClient, ids: string[], canTriage: boolean): Promise<void> {
     if (!canTriage || ids.length === 0) return
     const now = this.deps.now()
@@ -363,7 +383,7 @@ class Run {
     this.report.events += kept.length
   }
 
-  /** Up to 2 briefs per run: an event with a persona and no brief → that persona's last 3 mails of the label. */
+  /** Up to BRIEFS_PER_RUN briefs per run: an event with a persona and no brief → that persona's last 3 mails of the label. */
   async briefs(a: AccountRow, g: GoogleClient, listed: string[], canTriage: boolean): Promise<void> {
     if (!canTriage || listed.length === 0) return
     const now = this.deps.now()
@@ -493,7 +513,13 @@ export async function runSync(env: Env, deps: Deps, mods: SyncModules, max = RUN
       `SELECT id, email_hash, self_hash, refresh_iv, refresh_ct, access_iv, access_ct, access_expires_at, label_id
        FROM accounts WHERE needs_signin = 0 AND self_hash IS NOT NULL ORDER BY id`,
     ).all<AccountRow>()
+    // BRIEF-D4 § 3.6 (D3 review, note 5): only the accounts of TODAY's ALLOWED_ACCOUNTS are read. Another account is
+    // skipped and nothing else: no revoke, no delete (decision 1.6). An empty or missing list = nobody is read.
+    const allowed = await allowedHashes(env)
+    const skipped = rows.results.filter((a) => !allowed.has(a.email_hash)).length
+    if (skipped) slog('not_allowed', { accounts: skipped })
     for (const a of rows.results) {
+      if (!allowed.has(a.email_hash)) continue
       run.report.accounts += 1
       // the daily cap used up, or no key: nothing is triaged (and no message is fetched for it)
       const canTriage = !missingKey && (await run.dailyLeft()) > 0

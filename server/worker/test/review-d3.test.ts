@@ -60,25 +60,24 @@ describe('D3 finding 3: a run fits the scheduled time limit', () => {
     await pairedSession()
     const up = new FakeUpstream()
     up.mails = ['marco', 'priya', 'lina', 'jordan', 'marco'].map((k, i) => ({ id: `s${i}`, from: alias(k), at: T0 - 100 * (i + 1) }))
-    // every model call takes 10 s
+    // every model call takes 13 s (D4 review, FIX 1: a run now takes NEW_PER_RUN = 2 messages, so the second one must
+    // fall after MODEL_START_BEFORE_S for the deadline to show)
     const inner = up.fetch
     up.fetch = async (input, init) => {
-      if (input === OPENROUTER) clock.t += 10
+      if (input === OPENROUTER) clock.t += 13
       return inner(input, init)
     }
     const r1 = await sync(up, fakeModules())
     expect(MODEL_START_BEFORE_S).toBeLessThanOrEqual(15)
-    expect(r1.triaged).toBe(2) // started at 0 s and 10 s; at 20 s none starts
+    expect(r1.triaged).toBe(1) // started at 0 s; at 13 s none starts
     expect(r1.late).toBe(true)
-    expect(up.modelCalls).toBe(2)
-    expect(gets(up)).toBe(2) // nothing is fetched for a triage that will not start
+    expect(up.modelCalls).toBe(1)
+    expect(gets(up)).toBe(1) // nothing is fetched for a triage that will not start
     const left = await db.prepare("SELECT COUNT(*) AS n FROM messages WHERE state != 'done'").first<{ n: number }>()
     expect(left!.n).toBe(0)
 
-    const r2 = await sync(up, fakeModules())
-    expect(r2.triaged).toBe(2)
-    const r3 = await sync(up, fakeModules())
-    expect(r3.triaged).toBe(1)
+    for (let i = 0; i < 4; i++) expect((await sync(up, fakeModules())).triaged).toBe(1)
+    expect((await sync(up, fakeModules())).triaged).toBe(0)
     const tries = await db.prepare('SELECT MAX(tries) AS t FROM messages').first<{ t: number }>()
     expect(tries!.t).toBe(1)
   })

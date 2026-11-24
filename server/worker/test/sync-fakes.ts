@@ -7,7 +7,7 @@ import type { TriageOptions } from '../../triage/types'
 import { open as openSealed, seal, sha256hex, tokenKey } from '../src/crypto'
 import type { Deps, Env } from '../src/env'
 import type { Persona } from '../src/personas'
-import type { SyncModules } from '../src/sync'
+import type { SyncModules, SyncReport } from '../src/sync'
 import { runSync } from '../src/sync'
 import { ALLOWED, call, clock, codeOf, FAKE_REFRESH, googleStub, req, startState, testEnv } from './helpers'
 
@@ -213,6 +213,27 @@ export function depsOf(up: FakeUpstream): Deps {
 
 export function sync(up: FakeUpstream, mods: SyncModules, e: Env = syncEnv(), max?: number) {
   return runSync(e, depsOf(up), mods, max)
+}
+
+/**
+ * D4 review, FIX 1: a run now takes NEW_PER_RUN (2) messages and BRIEFS_PER_RUN (1) brief, so the 50 subrequests
+ * (fetch + D1 together) stay 20 % under. The cron runs every 2 minutes; this runs again until a run moves nothing
+ * (10 runs at most, same clock) and returns the sum of the runs.
+ */
+export async function syncAll(up: FakeUpstream, mods: SyncModules, e: Env = syncEnv(), max?: number): Promise<SyncReport> {
+  let total: SyncReport | null = null
+  for (let i = 0; i < 10; i++) {
+    const r = await sync(up, mods, e, max)
+    if (!total) total = { ...r }
+    else
+      for (const k of ['requests', 'triaged', 'ignored', 'failed', 'events', 'briefs', 'signin'] as const) total[k] += r[k]
+    if (i > 0) {
+      total.capped ||= r.capped
+      total.late ||= r.late
+    }
+    if (r.capped || r.triaged + r.ignored + r.failed + r.briefs === 0) break
+  }
+  return total!
 }
 
 /** Google sign-in for ALLOWED → code → claim: a paired session token (the real day-2 path, with a stubbed Google). */

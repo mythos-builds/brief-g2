@@ -18,6 +18,7 @@ import {
   pairedSession,
   SUBJECT_MARK,
   sync,
+  syncAll,
   syncEnv,
 } from './sync-fakes'
 
@@ -74,7 +75,7 @@ describe('sync: messages', () => {
     const up = new FakeUpstream()
     inbox(up)
     const mods = fakeModules()
-    const r1 = await sync(up, mods)
+    const r1 = await syncAll(up, mods)
     expect(r1).toMatchObject({ accounts: 1, triaged: 2, ignored: 2, failed: 0, capped: false })
     expect(up.modelCalls).toBe(2)
     expect(up.gets).toBe(4)
@@ -118,7 +119,7 @@ describe('sync: messages', () => {
     await pairedSession()
     const up = new FakeUpstream()
     inbox(up)
-    const [a, b] = await Promise.all([sync(up, fakeModules()), sync(up, fakeModules())])
+    const [a, b] = await Promise.all([syncAll(up, fakeModules()), syncAll(up, fakeModules())])
     expect(a.triaged + b.triaged).toBe(2)
     expect(up.modelCalls).toBe(2)
     const n = await db.prepare('SELECT COUNT(*) AS n FROM triage_results').first<{ n: number }>()
@@ -142,7 +143,11 @@ describe('sync: messages', () => {
   it('the daily cap is counted in D1 and stops triage mid-run: cap 1 → 1 model call, the other message waits', async () => {
     await pairedSession()
     const up = new FakeUpstream()
-    inbox(up)
+    // two persona mails only, so both fall in one run (NEW_PER_RUN = 2 since the D4 review, FIX 1)
+    up.mails = [
+      { id: 'm1', from: alias('marco'), at: T0 - 3600 },
+      { id: 'm2', from: alias('priya'), at: T0 - 600 },
+    ]
     const r = await sync(up, fakeModules(), syncEnv({ TRIAGE_DAILY_CAP: '1' }))
     expect(r.triaged).toBe(1)
     expect(up.modelCalls).toBe(1)
@@ -157,16 +162,19 @@ describe('sync: messages', () => {
 
   it('the cap of 40 requests per run → a clean stop at exactly 40, nothing left claimed', async () => {
     await pairedSession()
-    const others = ['second@example.net', 'third@example.net', 'fourth@example.net', 'fifth@example.net']
+    // seven accounts: since the D4 review (FIX 1) one account's run takes 2 mails (8 requests at most), so the five
+    // of day 3 no longer reach 40 (six made 38, measured)
+    const others = ['second@example.net', 'third@example.net', 'fourth@example.net', 'fifth@example.net', 'sixth@example.net', 'seventh@example.net']
     for (const o of others) await insertAccount(o)
     const up = new FakeUpstream()
-    // 5 accounts, each with 5 persona mails of its own: at least 9 requests per account (refresh, labels, list,
-    // 5 gets, calendar) → more than 40 in one run
+    // 7 accounts, each with 5 persona mails of its own: at least 6 requests per account (refresh, labels, list,
+    // 2 gets, calendar) → more than 40 in one run
     for (const acct of [ALLOWED, ...others])
       for (const [i, k] of ['marco', 'priya', 'lina', 'jordan', 'marco'].entries())
         up.mails.push({ id: `${acct.slice(0, 3)}${i}`, from: alias(k, acct), at: T0 - 100 * (i + 1) })
     const log = vi.spyOn(console, 'log')
-    const r = await sync(up, fakeModules())
+    // day 4 (§ 3.6): the sync reads only the accounts of today's list, so the seven are on it
+    const r = await sync(up, fakeModules(), syncEnv({ ALLOWED_ACCOUNTS: [ALLOWED, ...others].join(',') }))
     expect(r.capped).toBe(true)
     expect(r.requests).toBe(40)
     expect(up.calls).toHaveLength(40)
@@ -262,7 +270,7 @@ describe('paired routes', () => {
     const token = await pairedSession()
     const up = new FakeUpstream()
     inbox(up)
-    await sync(up, fakeModules())
+    await syncAll(up, fakeModules())
     return { token, up }
   }
 
@@ -421,8 +429,10 @@ describe('dev base addresses (§ 3.8)', () => {
       return up.fetch(real, i)
     }
     const { runSync } = await import('../src/sync')
-    const r = await runSync(syncEnv({ ...dev, ENV: 'dev' }), { fetch: devFetch, now: () => clock.t }, fakeModules())
-    expect(r.triaged).toBe(2)
+    const run = () => runSync(syncEnv({ ...dev, ENV: 'dev' }), { fetch: devFetch, now: () => clock.t }, fakeModules())
+    const r = await run()
+    const r2 = await run() // NEW_PER_RUN = 2 (D4 review, FIX 1): the 4 fixture mails take two runs
+    expect(r.triaged + r2.triaged).toBe(2)
     expect(seen.length).toBeGreaterThan(5)
     expect(seen.every((u) => u.startsWith('http://127.0.0.1:8799/'))).toBe(true)
   })

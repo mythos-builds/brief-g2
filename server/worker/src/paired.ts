@@ -2,12 +2,51 @@
 // that fails today's validation is never served. The API never returns a real address: Item.address is the persona's
 // fictional one from the bundled table.
 import { checkShape } from '../../triage/validate.ts'
-import type { Env } from './env.ts'
+import { sha256hex } from './crypto.ts'
+import { allowedAccounts, type Env } from './env.ts'
 import type { Item } from './items.ts'
 import { type CalendarEvent, displayTz, hhmm, localDate, personaOf } from './personas.ts'
+import { hasSendScope, realSendOn, type SendAccount } from './send.ts'
 import { validBrief } from './wiring.ts'
 
 export const ITEMS_MAX = 20
+
+/** The email_hash (SHA-256 of `email:<lower-cased address>`) of every address of today's ALLOWED_ACCOUNTS. */
+export async function allowedHashes(env: Env): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (const e of allowedAccounts(env)) out.add(await sha256hex(`email:${e}`))
+  return out
+}
+
+export interface AccountRow extends SendAccount {
+  scope: string
+  needs_signin: number
+}
+
+/**
+ * Check b of BRIEF-D4 § 3.2, for every paired route: the account is in TODAY's ALLOWED_ACCOUNTS (else 401: refuse,
+ * never revoke, never delete, decision 1.6) · its grant is alive (else 403 signin_needed) · for send and skip, when
+ * REAL_SEND is on, its stored scope holds gmail.send (else 403 signin_needed).
+ */
+export async function accountGate(
+  env: Env,
+  accountId: number | null,
+  sendScope: boolean,
+): Promise<{ account: AccountRow } | { error: 'unauthorized' | 'signin_needed' }> {
+  const row =
+    accountId === null
+      ? null
+      : await env.DB.prepare(
+          `SELECT id, email_hash, self_hash, scope, needs_signin, refresh_iv, refresh_ct, access_iv, access_ct, access_expires_at
+           FROM accounts WHERE id = ?1`,
+        )
+          .bind(accountId)
+          .first<AccountRow>()
+  if (!row || !(await allowedHashes(env)).has(row.email_hash)) return { error: 'unauthorized' }
+  if (row.needs_signin !== 0 || !row.self_hash) return { error: 'signin_needed' }
+  if (sendScope && realSendOn(env) && !hasSendScope(row.scope)) return { error: 'signin_needed' }
+  return { account: row }
+}
 
 /** The account's grant state: 'ok', or 'signin' when it is dead (or the account is gone). */
 export async function grantState(db: D1Database, accountId: number | null): Promise<'ok' | 'signin'> {
@@ -50,6 +89,7 @@ function toItem(r: Row, tz: string): Item | null {
   }
 }
 
+// a row handled for a real send (sending, sent, unknown) has handled_at set: never listed, never offered again
 const SELECT = `SELECT m.msg_id, m.persona, m.received_at, m.handled_at, r.result
   FROM messages m JOIN triage_results r ON r.id = m.account_id || ':' || m.msg_id
   WHERE m.account_id = ?1 AND m.state = 'done'`

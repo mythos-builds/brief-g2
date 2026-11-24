@@ -10,6 +10,8 @@ export type ErrorCode =
   | 'rate_limited'
   | 'daily_cap'
   | 'server_error'
+  | 'send_failed'
+  | 'send_unknown'
 
 export const STATUS: Record<ErrorCode, number> = {
   bad_request: 400,
@@ -21,6 +23,9 @@ export const STATUS: Record<ErrorCode, number> = {
   rate_limited: 429,
   daily_cap: 429,
   server_error: 500,
+  // BRIEF-D4 § 3.1: a definite failure (nothing left, the item is offered again) · an unknown outcome (it may have left)
+  send_failed: 502,
+  send_unknown: 504,
 }
 
 const COMMON = {

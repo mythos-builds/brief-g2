@@ -219,10 +219,13 @@ describe('POST /api/pair/claim', () => {
     call(req('/api/pair/claim', { method: 'POST', body: JSON.stringify({ code }), ip }))
 
   it('turns a live code into a paired session (7 days) that reads its own account (day 3: no demo items)', async () => {
+    // day 4 (§ 3.6): a paired route serves only an account of today's ALLOWED_ACCOUNTS, so the row is that account's
     await env.DB.prepare(
       `INSERT INTO accounts (id, email_hash, refresh_iv, refresh_ct, scope, created_at, updated_at, self_hash)
-       VALUES (1, 'h', 'iv', 'ct', '', 0, 0, 'sh')`,
-    ).run()
+       VALUES (1, ?1, 'iv', 'ct', '', 0, 0, 'sh')`,
+    )
+      .bind(await sha256hex('email:allowed.demo@example.com'))
+      .run()
     await insertCode('123456')
     const res = await claim('123456')
     expect(res.status).toBe(200)

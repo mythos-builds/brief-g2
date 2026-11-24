@@ -26,12 +26,31 @@ export interface Env {
   GMAIL_BASE?: string
   CALENDAR_BASE?: string
   MODEL_BASE?: string
+  /** Day 4 (BRIEF-D4 § 3.9): a real mail leaves ONLY when this is exactly "on" ("off" in wrangler.toml). */
+  REAL_SEND?: string
+  /** Real sends per account per UTC day (default "20"), counted when a send is claimed, never given back. */
+  SEND_DAILY_CAP?: string
 }
 
 /** What the Worker reaches outside itself. Tests pass a stub; production wraps the global fetch (bound, finding 10). */
 export interface Deps {
   fetch: (input: string, init?: RequestInit) => Promise<Response>
   now: () => number // Unix seconds
+  /** The time limit of each Google call of a send (BRIEF-D4 § 3.3: 8 s). Tests only shorten it. */
+  sendCallLimitMs?: number
+}
+
+/**
+ * The lower-cased e-mail list of the secret ALLOWED_ACCOUNTS (read again on every request and every sync run,
+ * BRIEF-D4 § 3.6). Empty or missing = nobody is allowed.
+ */
+export function allowedAccounts(env: Env): Set<string> {
+  return new Set(
+    (env.ALLOWED_ACCOUNTS ?? '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s.length > 0),
+  )
 }
 
 export const liveDeps: Deps = {

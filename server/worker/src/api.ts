@@ -1,11 +1,13 @@
-// /api/* (contract BRIEF-D2 § 3, points 1 to 5; BRIEF-D3 § 3.1 to 3.4). Nothing is ever sent, in any mode.
+// /api/* (contract BRIEF-D2 § 3, points 1 to 5; BRIEF-D3 § 3.1 to 3.4; BRIEF-D4 § 3.2 to 3.8). Demo mode never
+// sends. A real mail leaves ONLY from postSend in paired mode, when REAL_SEND is exactly "on" (send.ts).
 import { newToken, sha256hex, TOKEN_RE } from './crypto.ts'
 import type { Deps, Env } from './env.ts'
 import { error, json, readBodyCapped, readJsonObject } from './http.ts'
 import { DEMO_ITEMS, findItem, ID_RE, type Item } from './items.ts'
 import { addressKey, dayKey, endOfDay, hit, HOUR, purge } from './limits.ts'
-import { grantState, markPairedHandled, pairedCalendar, pairedItem, pairedItems } from './paired.ts'
+import { accountGate, markPairedHandled, pairedCalendar, pairedItem, pairedItems } from './paired.ts'
 import { DEMO_CALENDAR } from './personas.ts'
+import { claimSend, finishSend, realSendOn, releaseSend, sendReply } from './send.ts'
 
 export const DEMO_TTL = 7200
 export const PAIRED_TTL = 604_800
@@ -124,8 +126,9 @@ export async function getItems(request: Request, env: Env, deps: Deps): Promise<
   const s = await authSession(request, env.DB, now)
   if (!s) return error('unauthorized')
   if (s.mode === 'paired') {
-    if ((await grantState(env.DB, s.accountId)) !== 'ok') return error('signin_needed')
-    return json({ mode: 'paired', items: await pairedItems(env, s.accountId!) })
+    const gate = await accountGate(env, s.accountId, false)
+    if ('error' in gate) return error(gate.error)
+    return json({ mode: 'paired', items: await pairedItems(env, gate.account.id) })
   }
   if (!DEMO_ITEMS) return error('server_error')
   const done = await env.DB.prepare('SELECT item_id FROM handled WHERE token_hash = ?1').bind(s.hash).all<{ item_id: string }>()
@@ -145,20 +148,33 @@ async function markHandled(db: D1Database, s: Session, id: string, action: 'send
   return row !== null
 }
 
-// 4. POST /api/items/<id>/send {"choice":n}
+/** One log line per real send: step names, counts and codes only; never an address, a subject, a body, a token. */
+function sendLog(fields: Record<string, string | number>): void {
+  console.log(JSON.stringify({ route: 'api.items.send', ...fields }))
+}
+
+// 4. POST /api/items/<id>/send {"choice":n}. Paired: the checks of BRIEF-D4 § 3.2 in their order, a to j.
 export async function postSend(request: Request, env: Env, deps: Deps, id: string): Promise<Response> {
   const now = deps.now()
+  // a. a valid session
   const s = await authSession(request, env.DB, now)
   if (!s) return error('unauthorized')
   let item: Item | undefined
+  let accountId: number | null = null
+  let account: Awaited<ReturnType<typeof accountGate>> | null = null
   if (s.mode === 'paired') {
-    // the account's stored item (BRIEF-D3 § 3.3); « handled » is recorded for the account below
-    item = ID_RE.test(id) && s.accountId !== null ? (await pairedItem(env, s.accountId, id))?.item : undefined
+    // b. today's allow-list (401) · a live grant (403) · REAL_SEND on → the gmail.send scope (403)
+    account = await accountGate(env, s.accountId, true)
+    if ('error' in account) return error(account.error)
+    accountId = account.account.id
+    // c. the account's stored item, handled or not (BRIEF-D3 § 3.3)
+    item = ID_RE.test(id) ? (await pairedItem(env, accountId, id))?.item : undefined
   } else {
     if (!DEMO_ITEMS) return error('server_error')
     item = ID_RE.test(id) ? findItem(DEMO_ITEMS, id) : undefined
   }
   if (!item) return error('not_found')
+  // d. the route limits of day 2
   const addr = await addressKey(request)
   const refused = await hit(env.DB, now, [
     { key: `send:session:${s.hash}`, max: 30, windowEnd: s.expiresAt, code: 'rate_limited' },
@@ -166,30 +182,66 @@ export async function postSend(request: Request, env: Env, deps: Deps, id: strin
     { key: `send:day:${dayKey(now)}`, max: 3000, windowEnd: endOfDay(now), code: 'daily_cap' },
   ])
   if (refused) return error(refused.code, refused.retryAfter)
-  // the body is {"choice":n} and nothing else: never a text, never an address
+  // e. the body is {"choice":n} and nothing else: never a text, never an address
   const body = await readJsonObject(request, BODY_MAX)
   if (!body || !onlyKeys(body, ['choice'])) return error('bad_request')
   const c = body.choice
   if (typeof c !== 'number' || !Number.isInteger(c) || c < 0 || c > 4) return error('bad_request')
   const text = c === 0 ? item.draft : item.alts[c - 1]
   if (typeof text !== 'string' || text.trim() === '') return error('bad_request')
-  const marked =
-    s.mode === 'paired'
-      ? await markPairedHandled(env.DB, s.accountId!, item.id, 'send', c, now)
-      : await markHandled(env.DB, s, item.id, 'send', c)
-  if (!marked) return error('already_handled')
-  // nothing leaves, in any mode (the real send to our own aliases is day 4)
-  return json({ sent: true, real: false })
+  if (accountId === null || !account || 'error' in account) {
+    // demo: unchanged, nothing leaves
+    if (!(await markHandled(env.DB, s, item.id, 'send', c))) return error('already_handled')
+    return json({ sent: true, real: false })
+  }
+  // f. REAL_SEND not exactly "on" → day-3 behaviour: marked handled, no Google call at all
+  if (!realSendOn(env)) {
+    if (!(await markPairedHandled(env.DB, accountId, item.id, 'send', c, now))) return error('already_handled')
+    return json({ sent: true, real: false })
+  }
+  // g + h. the daily cap of real sends and the claim (ONE conditional update, in one transaction with the count)
+  const claim = await claimSend(env.DB, env, accountId, item.id, c, now)
+  if (claim.kind !== 'claimed') {
+    sendLog({ step: 'claim', code: claim.kind })
+    return error(claim.kind)
+  }
+  // i. the Google calls · j. the outcome
+  const { outcome, calls } = await sendReply(env, deps, account.account, { id: item.id, threadId: claim.threadId, persona: claim.persona }, text)
+  sendLog({
+    step: 'outcome',
+    outcome: outcome.kind,
+    calls,
+    ...('step' in outcome ? { at: outcome.step } : {}),
+    ...('status' in outcome && outcome.status !== undefined ? { status: outcome.status } : {}),
+  })
+  switch (outcome.kind) {
+    case 'sent':
+      await finishSend(env.DB, accountId, item.id, 'sent', outcome.sentId)
+      return json({ sent: true, real: true })
+    case 'unknown':
+      // it may have left: the row stays handled, never retried, never offered again
+      await finishSend(env.DB, accountId, item.id, 'unknown', null)
+      return error('send_unknown')
+    case 'signin':
+      await releaseSend(env.DB, accountId, item.id)
+      return error('signin_needed')
+    default:
+      // definite: nothing left; the item is offered again
+      await releaseSend(env.DB, accountId, item.id)
+      return error('send_failed')
+  }
 }
 
-// 5. POST /api/items/<id>/skip, empty body
+// 5. POST /api/items/<id>/skip, empty body. Paired: checks a and b of BRIEF-D4 § 3.2 first (§ 3.7), then as day 3.
 export async function postSkip(request: Request, env: Env, deps: Deps, id: string): Promise<Response> {
   const now = deps.now()
   const s = await authSession(request, env.DB, now)
   if (!s) return error('unauthorized')
   let item: Item | undefined
   if (s.mode === 'paired') {
-    item = ID_RE.test(id) && s.accountId !== null ? (await pairedItem(env, s.accountId, id))?.item : undefined
+    const gate = await accountGate(env, s.accountId, true)
+    if ('error' in gate) return error(gate.error)
+    item = ID_RE.test(id) ? (await pairedItem(env, gate.account.id, id))?.item : undefined
   } else {
     if (!DEMO_ITEMS) return error('server_error')
     item = ID_RE.test(id) ? findItem(DEMO_ITEMS, id) : undefined
@@ -211,11 +263,29 @@ export async function getCalendar(request: Request, env: Env, deps: Deps): Promi
   const s = await authSession(request, env.DB, now)
   if (!s) return error('unauthorized')
   if (s.mode === 'paired') {
-    if ((await grantState(env.DB, s.accountId)) !== 'ok') return error('signin_needed')
-    const cal = await pairedCalendar(env, s.accountId!, now)
+    const gate = await accountGate(env, s.accountId, false)
+    if ('error' in gate) return error(gate.error)
+    const cal = await pairedCalendar(env, gate.account.id, now)
     return json({ mode: 'paired', now: cal.now, events: cal.events })
   }
   if (!DEMO_CALENDAR) return error('server_error')
   const events = DEMO_CALENDAR.events.filter((e) => e.start > DEMO_CALENDAR!.now).slice(0, 5)
   return json({ mode: 'demo', now: DEMO_CALENDAR.now, events })
+}
+
+// 7. POST /api/session/logout, Bearer, empty body (BRIEF-D4 § 3.8): the session row is deleted (demo or paired).
+// 30 per address per hour; no, unknown or expired session → 401, so a second call → 401.
+export async function postLogout(request: Request, env: Env, deps: Deps): Promise<Response> {
+  const now = deps.now()
+  const addr = await addressKey(request)
+  const refused = await hit(env.DB, now, [{ key: `logout:addr:${addr}`, max: 30, windowEnd: now + HOUR, code: 'rate_limited' }])
+  if (refused) return error(refused.code, refused.retryAfter)
+  const s = await authSession(request, env.DB, now)
+  if (!s) return error('unauthorized')
+  const raw = await readBodyCapped(request, BODY_MAX)
+  if (!raw || raw.byteLength !== 0) return error('bad_request')
+  // ONE conditional delete: of two logouts at the same moment, one gets 200, the other 401
+  const gone = await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?1 RETURNING 1 AS ok').bind(s.hash).first()
+  if (!gone) return error('unauthorized')
+  return json({ ok: true })
 }

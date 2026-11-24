@@ -10,7 +10,7 @@ import personasFile from '../src/personas.json'
 import { checkCalendarFile, checkPersonasFile, DEMO_CALENDAR, PERSONAS } from '../src/personas'
 import { ALLOWED, call, clock, FAKE_REFRESH, googleStub, req, startState } from './helpers'
 import { realModules } from '../src/wiring'
-import { alias, BODY_MARK, fakeModules, FakeUpstream, pairedSession, SUBJECT_MARK, sync } from './sync-fakes'
+import { alias, BODY_MARK, fakeModules, FakeUpstream, pairedSession, SUBJECT_MARK, sync, syncAll } from './sync-fakes'
 
 const db = (env as Env).DB
 const T0 = 1_795_000_000 // 2026-11-18 11:06:40 UTC = 06:06:40 in Toronto (EST)
@@ -181,7 +181,8 @@ describe('the scheduled handler', () => {
     expect(typeof worker.scheduled).toBe('function')
     const log = vi.spyOn(console, 'log')
     const ctx = createExecutionContext()
-    worker.scheduled!({ cron: '*/2 * * * *', scheduledTime: Date.now(), noRetry() {} } as ScheduledController, env as Env, ctx)
+    // day 4 (§ 6.3): the handler awaits the run itself (15 min of wall time), so the test awaits the handler
+    await worker.scheduled!({ cron: '*/2 * * * *', scheduledTime: Date.now(), noRetry() {} } as ScheduledController, env as Env, ctx)
     await waitOnExecutionContext(ctx)
     expect(log.mock.calls.some((c) => String(c[0]).includes('"route":"sync.done"'))).toBe(true)
   })
@@ -198,7 +199,7 @@ describe('wiring: the real modules of job B', () => {
       { id: 'g3', from: 'Someone <someone@example.org>', at: T0 - 1000 },
       { id: 'g4', from: 'other.person+lina@example.com', at: T0 - 1100 },
     ]
-    const r = await sync(up, realModules)
+    const r = await syncAll(up, realModules)
     expect(r).toMatchObject({ triaged: 2, ignored: 2, failed: 0 })
     const text = await (await call(req('/api/items', { token }))).text()
     expect((JSON.parse(text) as { items: Array<{ id: string }> }).items.map((i) => i.id)).toEqual(['g1', 'g2'])

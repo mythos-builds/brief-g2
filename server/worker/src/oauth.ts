@@ -2,10 +2,13 @@
 // Endpoints and parameters from developers.google.com/identity/protocols/oauth2/web-server (read 2026-11-23).
 import { CODE_TTL } from './api.ts'
 import { newPairCode, newToken, seal, sha256hex, tokenKey, TOKEN_RE } from './crypto.ts'
-import { type Deps, type Env, requireConfig } from './env.ts'
+import { allowedAccounts, type Deps, type Env, requireConfig } from './env.ts'
 import { revokeToken, upstreams } from './google.ts'
 import { addressKey, hit, HOUR, purge } from './limits.ts'
 import { badRequestPage, codePage, notOpenPage, tooManyPage } from './pages.ts'
+
+// moved to env.ts (day 4: the routes and the sync read the list again); kept exported here for older imports
+export { allowedAccounts }
 
 export const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth'
 export const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
@@ -17,16 +20,6 @@ export const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
 ]
 export const STATE_TTL = 600
-
-/** The lower-cased e-mail list of the secret ALLOWED_ACCOUNTS. */
-export function allowedAccounts(env: Env): Set<string> {
-  return new Set(
-    (env.ALLOWED_ACCOUNTS ?? '')
-      .split(',')
-      .map((s) => s.trim().toLowerCase())
-      .filter((s) => s.length > 0),
-  )
-}
 
 // GET /oauth/start → 302 to Google with a fresh single-use state
 export async function oauthStart(request: Request, env: Env, deps: Deps, ctx: ExecutionContext): Promise<Response> {

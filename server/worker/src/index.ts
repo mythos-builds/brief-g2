@@ -9,8 +9,10 @@ export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     return handle(request, env, ctx, liveDeps)
   },
-  // cron */2 * * * * (wrangler.toml): the ONLY place where Google and the model are called for reading (BRIEF-D3 § 1.5)
-  scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
-    ctx.waitUntil(runSync(env, liveDeps, realModules).then(() => undefined))
+  // cron */2 * * * * (wrangler.toml): the ONLY place where Google and the model are called for reading (BRIEF-D3 § 1.5).
+  // Day 4 (§ 6.3): the run is awaited by the handler itself (« Scheduled Workers have a maximum wall time of 15 minutes
+  // per invocation »), not left to ctx.waitUntil, which « can extend execution for up to 30 seconds ».
+  async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await runSync(env, liveDeps, realModules)
   },
 } satisfies ExportedHandler<Env>

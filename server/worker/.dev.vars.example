@@ -17,3 +17,7 @@ GOOGLE_REVOKE_URL="http://127.0.0.1:8799/revoke"
 GMAIL_BASE="http://127.0.0.1:8799"
 CALENDAR_BASE="http://127.0.0.1:8799"
 MODEL_BASE="http://127.0.0.1:8799"
+# Day 4: the real send, ON in dev only: every Google call goes to the fake above, which keeps what it gets (GET /_sent).
+# wrangler.toml keeps "off" for production; any value but exactly "on" is off.
+REAL_SEND="on"
+SEND_DAILY_CAP="20"

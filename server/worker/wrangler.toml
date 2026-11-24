@@ -35,6 +35,11 @@ DEMO_LABEL = "brief-demo"
 DISPLAY_TZ = "America/Toronto"
 TRIAGE_DAILY_CAP = "30"
 MODEL_PROVIDER = "openrouter"
+# Day 4 (BRIEF-D4 § 3.9). A real mail leaves ONLY when REAL_SEND is exactly "on" (paired mode, POST …/send, to the
+# account's own plus-alias). It stays "off" here: the CEO turns it on after his own check (README « Day-4 deploy »).
+REAL_SEND = "off"
+# Real sends per account per UTC day, counted when a send is claimed, never given back.
+SEND_DAILY_CAP = "20"
 # GOOGLE_TOKEN_URL, GOOGLE_REVOKE_URL, GMAIL_BASE, CALENDAR_BASE, MODEL_BASE: dev only (.dev.vars), ignored unless
 # ENV is "dev". Never set them here.
 
