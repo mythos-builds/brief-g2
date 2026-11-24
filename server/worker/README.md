@@ -215,7 +215,7 @@ Run from `app/server/worker`, with the Cloudflare API token in the environment (
 - `REAL_SEND` reaches only the account's own plus-aliases; the Google project is in test mode (the grant dies after
   7 days: sign in again).
 - Seen on the deployed Worker (2026-11-23): the first real send answered 200 in about a second with 2 Google calls
-  (the cached token, `messages.get`, `messages.send`); Gmail put the reply in the original's thread, to the alias,
+  (`messages.get` and `messages.send`; the access token came from the sealed cache); Gmail put the reply in the original's thread, to the alias,
   with `In-Reply-To` and `References`; the second press answered 409; the day's counter `send:<account>:<UTC date>`
   read 1 afterwards, so `changes()` carries from the claim to the count inside a D1 batch in production too (D4
   review, note 4). With `REAL_SEND` back to `"off"` the same route answered `"real":false` and Gmail's Sent folder
