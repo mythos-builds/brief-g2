@@ -44,7 +44,8 @@ const QUOTE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ["'", "'"],
 ];
 
-/** A model answer made into a draft, or the reason it may not be one (a code and numbers only, never model text). */
+/** A model answer made into a draft (trimmed, one pair of outer quotes removed, a missing last period added), or the
+ * reason it may not be one (a code and numbers only, never model text). A stored draft passes unchanged. */
 export function checkSpoken(text: unknown): { ok: true; draft: string } | { ok: false; reason: string } {
   if (typeof text !== 'string') return { ok: false, reason: 'not_text' };
   let t = text.normalize('NFKC').trim();
@@ -59,6 +60,10 @@ export function checkSpoken(text: unknown): { ok: true; draft: string } | { ok: 
     }
   }
   if (t === '') return { ok: false, reason: 'empty' };
+  // Seen live at the gate (2026-11-23): the model sometimes leaves the last period out (« …thanks for the update »),
+  // and did it again on the retry, so a good reply was refused. A text that ends with a letter or a digit gets its
+  // period here; anything else without a final stop (a comma, a dash, a quote) is still refused below.
+  if (/[\p{L}\p{N}]$/u.test(t)) t += '.';
   const lines = t.split(/\r?\n/).length;
   if (lines > LIMITS.draftLines) return { ok: false, reason: `too_many_lines ${lines}` };
   if (t.length > LIMITS.draftChars) return { ok: false, reason: `too_long ${t.length}` };

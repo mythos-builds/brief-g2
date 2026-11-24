@@ -146,7 +146,13 @@ test('an empty answer is refused', async () => {
 test('checkSpoken: not a string, no final stop, address, digits, markup, currency', () => {
   assert.deepEqual(checkSpoken(42), { ok: false, reason: 'not_text' });
   assert.deepEqual(checkSpoken(undefined), { ok: false, reason: 'not_text' });
-  assert.deepEqual(checkSpoken('Thursday works'), { ok: false, reason: 'no_final_stop' });
+  // gate (seen live 2026-11-23): a reply that only lacks its last period gets it; any other ending is still refused
+  assert.deepEqual(checkSpoken('Thursday works'), { ok: true, draft: 'Thursday works.' });
+  assert.deepEqual(checkSpoken('I can do Thursday at 2'), { ok: true, draft: 'I can do Thursday at 2.' });
+  assert.deepEqual(checkSpoken('Thursday works,'), { ok: false, reason: 'no_final_stop' });
+  assert.deepEqual(checkSpoken('Thursday works -'), { ok: false, reason: 'no_final_stop' });
+  assert.deepEqual(checkSpoken('x'.repeat(110)), { ok: false, reason: 'too_long 111' }); // the added period counts
+  assert.deepEqual(checkSpoken('Thursday works.'), { ok: true, draft: 'Thursday works.' }); // a stored draft passes unchanged
   assert.equal(checkSpoken('Write me at a@example.com.').ok, false);
   assert.equal(checkSpoken('Call 514 555 0199.').ok, false);
   assert.equal(checkSpoken('**Thursday** works.').ok, false);
@@ -186,7 +192,7 @@ test('an answer with no string response: bad_answer (units still counted)', asyn
 });
 
 test('retry: false makes one call even when the check fails', async () => {
-  const { ai, calls } = scripted([say('no stop here'), say(GOOD)]);
+  const { ai, calls } = scripted([say('no stop here,'), say(GOOD)]);
   const r = await spokenChange(INPUT, ai, { retry: false });
   assert.deepEqual(r, { ok: false, reason: 'no_final_stop', neurons: 10, tries: 1 });
   assert.equal(calls.length, 1);
