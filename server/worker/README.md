@@ -164,7 +164,7 @@ Run from `app/server/worker`, with the Cloudflare API token in the environment (
   triage the same message twice), the daily model cap `TRIAGE_DAILY_CAP` in D1 (`counters`, key `triage:<UTC date>`).
   Day 4: only the accounts of TODAY's `ALLOWED_ACCOUNTS` are read (hash of `email:<address>` = `email_hash`); another
   account is skipped and every paired route answers it 401: nothing is revoked, nothing is deleted (an empty or
-  missing list = nobody). A typing mistake in the secret costs nothing that a corrected secret does not give back.
+  missing list = nobody). A typing mistake in the secret destroys nothing on the server; the paired app, though, forgets a session that gets a 401 (« Known limits »).
 - The real send (day 4): checks in the order of `BRIEF-D4.md` § 3.2 (session · allow-list · live grant · `gmail.send`
   scope · the stored item · route limits · body · `REAL_SEND` · `SEND_DAILY_CAP` per account per UTC day, counted at
   the claim, never given back · ONE conditional claim, so two presses at the same moment give one 200 and one 409).
@@ -198,8 +198,11 @@ Run from `app/server/worker`, with the Cloudflare API token in the environment (
   is now 2 and `BRIEFS_PER_RUN` 1; the rest waits for the next run, 2 minutes later.
 - Wall time: the handler now awaits the run (15 min), and the run is kept under 24 s anyway (20 % under the 30 s of
   `waitUntil`): no new model call after `MODEL_START_BEFORE_S` = 12 s, each one ends by `RUN_WALL_S` = 22 s.
-- NOT CHECKED: the CPU time of a run (10 ms on Free; it cannot be measured locally: look at the CPU time of the
-  `sync` invocations in the dashboard after the deploy) · the sync's own Google reads have no per-call time limit
+- CPU time, seen on the deployed Worker (2026-11-23, live log `wrangler tail`, Free plan): a sync run with one brief
+  16 ms, a run that triaged one new mail 18 ms, a real send 24 ms, a list read 4 to 12 ms; every one ended with the
+  outcome `ok`, so the « 10 ms » of the limits page did not end a run of that size. NOT CHECKED: a worst-case run
+  (2 new mails and 1 brief in the same run), and how far above 10 ms the platform lets a run go.
+- NOT CHECKED: the sync's own Google reads have no per-call time limit
   (a hanging Google answer is cut by the platform, the leases bring the message back) · a SECOND allowed account
   adds its own requests and queries to the same run (the run cap of 40 counts outgoing requests only, not D1
   queries): keep `ALLOWED_ACCOUNTS` to one address on the Free plan.
@@ -211,6 +214,15 @@ Run from `app/server/worker`, with the Cloudflare API token in the environment (
   (it travelled over SMTP), is never read; only the owner's own IMAP append fills the label.
 - `REAL_SEND` reaches only the account's own plus-aliases; the Google project is in test mode (the grant dies after
   7 days: sign in again).
+- Seen on the deployed Worker (2026-11-23): the first real send answered 200 in about a second with 2 Google calls
+  (the cached token, `messages.get`, `messages.send`); Gmail put the reply in the original's thread, to the alias,
+  with `In-Reply-To` and `References`; the second press answered 409; the day's counter `send:<account>:<UTC date>`
+  read 1 afterwards, so `changes()` carries from the claim to the count inside a D1 batch in production too (D4
+  review, note 4). With `REAL_SEND` back to `"off"` the same route answered `"real":false` and Gmail's Sent folder
+  did not grow.
+- A typing mistake in `ALLOWED_ACCOUNTS` answers 401 to the paired app, and the app forgets a session that gets a
+  401: once the secret is corrected, the owner signs in at `/connect` again for a new code (the sync and the routes
+  keep the stored grant; the sign-in callback, day 2, still revokes the grant of an account that is not on the list).
 
 ## Framing (why `frame-ancestors 'none'` + `X-Frame-Options: DENY` on the app)
 Read in the local Even Hub docs (`upstream/everything-evenhub/plugins/everything-evenhub/skills/`): the Even app runs a
