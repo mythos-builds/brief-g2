@@ -140,7 +140,13 @@ Run from `app/server/worker`, with the Cloudflare API token in the environment (
    units: the counter `voice:<UTC date>` (`SELECT count FROM counters WHERE key = 'voice:2026-11-24'`). Never the
    clip, never what was heard. Logs: one line per request,
    `{"route":"api.items.speak","outcome":"draft|not_heard|failed|refused","at":<step>,"seconds","ms_stt","ms_llm","tries","neurons"}`
-   (plus the router's usual `{"route","status"}` line).
+   (plus the router's usual `{"route","status"}` line). On a failed speech call or rewrite the line has one more key,
+   `why`: a code and numbers (`timeout`, `no_final_stop`, `too_long 143`, `unsafe link`), never text.
+   Seen live at the gate (2026-11-24, synthetic voice clips, demo and paired): a spoken change answers in 1.5 to 7 s ·
+   CPU time 16 to 17 ms for a 5-second and for a 10-second clip, 9 ms for silence, every run `ok` on the Free plan ·
+   about 18 units a clip (the day's counter said 281 after 15 clips) · the model sometimes leaves the last period
+   out, and did so twice in one request (502, `why: no_final_stop`): `checkSpoken` now adds a missing last period ·
+   paired, with `REAL_SEND` on for one send: the mail in Gmail carries the spoken draft, then the signature.
 5. The send's sixth choice: `{"choice":5,"rev":"<8 hex>"}` sends the stored spoken draft only when `rev` is its hash
    (the one the glasses showed) and it still passes `checkSpoken`; otherwise 409 `stale_draft`, before `REAL_SEND`
    is looked at and before any claim. Everything else of the day-4 send is unchanged.
