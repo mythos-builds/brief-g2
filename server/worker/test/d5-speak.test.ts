@@ -448,7 +448,13 @@ describe('what leaves the route and the log (§ 1.3, § 3.2)', () => {
     for (const a of answers.filter((x) => !x.includes('"draft"'))) for (const f of forbidden) expect(a).not.toContain(f)
     // one speak line per request, its keys exactly these
     expect(speakLines()).toHaveLength(modes.length * 2)
-    for (const l of speakLines()) expect(Object.keys(l).sort()).toEqual(['at', 'ms_llm', 'ms_stt', 'neurons', 'outcome', 'route', 'seconds', 'tries'])
+    const KEYS = ['at', 'ms_llm', 'ms_stt', 'neurons', 'outcome', 'route', 'seconds', 'tries']
+    for (const l of speakLines()) expect(Object.keys(l).filter((k) => k !== 'why').sort()).toEqual(KEYS)
+    // `why` (gate): only on a failed speech call or rewrite, a code and numbers, never text
+    const whys = speakLines().map((l) => [l.outcome, l.at, l.why])
+    for (const [outcome, , why] of whys) expect(why === undefined).toBe(outcome !== 'failed')
+    for (const [, , why] of whys) if (why !== undefined) expect(why).toMatch(/^[a-z_]+( [a-z_]+)?( \d+)?$/)
+    expect(whys.filter(([o]) => o === 'failed').map(([, at, why]) => `${at}:${why}`).sort()).toEqual(['llm:too_long 235', 'llm:too_long 235', 'llm:unsafe link', 'llm:unsafe link', 'stt:error', 'stt:error'])
     // what was heard is stored nowhere: no table of D1 holds it
     for (const t of ['spoken', 'messages', 'counters', 'sessions', 'handled', 'triage_results']) {
       const all = JSON.stringify((await db.prepare(`SELECT * FROM ${t}`).all()).results)

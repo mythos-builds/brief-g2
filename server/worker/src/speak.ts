@@ -47,6 +47,8 @@ interface SpeakLog {
   ms_llm: number
   tries: number
   neurons: number
+  /** Only on a failed speech call or rewrite: a code and numbers (`timeout`, `too_long 143`, `unsafe link`), never text. */
+  why?: string
 }
 
 export async function postSpeak(request: Request, env: Env, deps: Deps, id: string): Promise<Response> {
@@ -133,7 +135,10 @@ export async function postSpeak(request: Request, env: Env, deps: Deps, id: stri
   const stt = await speechToText(ai, pcm, deps.sttLimitMs)
   line.ms_stt = Date.now() - t0
   await add(stt.units)
-  if (stt.kind === 'failed') return end(error('voice_failed'), 'failed', 'stt')
+  if (stt.kind === 'failed') {
+    line.why = stt.reason
+    return end(error('voice_failed'), 'failed', 'stt')
+  }
   if (stt.kind === 'silent') return end(error('not_heard'), 'not_heard', 'stt')
 
   // i. the rewrite (job B's spokenChange): the four fields and nothing else; each call's units counted as it ends
@@ -145,7 +150,10 @@ export async function postSpeak(request: Request, env: Env, deps: Deps, id: stri
   await counted.settle()
   line.ms_llm = Date.now() - t1
   line.tries = r.tries
-  if (!r.ok) return end(error('voice_failed'), 'failed', 'llm')
+  if (!r.ok) {
+    line.why = r.reason // a code and numbers only (spoken.ts checkSpoken), never the model's text
+    return end(error('voice_failed'), 'failed', 'llm')
+  }
 
   // j. store: ONE conditional statement; no row changed = the item was handled meanwhile
   if (!(await storeSpoken(env.DB, owner, item.id, r.draft, now))) return refuse('already_handled', 'store')
