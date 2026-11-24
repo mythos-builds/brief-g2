@@ -11,6 +11,15 @@
 // GET /_sent (the messages posted to send, decoded: [{to,from,subject,inReplyTo,references,threadId,body}]) ·
 // POST /_mode {"send":"ok"|"400"|"500"|"hang"|"401-once"} (default ok; hang answers 200 after 20 s, the message is
 // kept as soon as it arrives, like a mail that left while the answer is late; 401-once answers 401 to the next send only).
+// Day 5 (BRIEF-D5 3.9), Workers AI as the dev Worker's AI_BASE client sees it (no key asked, like the binding):
+// POST /ai/run/@cf/openai/whisper-large-v3-turbo  {audio:<base64 WAV>, language:"en", vad_filter:true}: the 44-byte WAV
+//   header is checked field by field and against the data size (400 code 3030 when wrong), language and vad_filter (400
+//   code 9000), else 200 {success,result:{text,word_count,transcription_info,usage}}.
+// POST /ai/run/@cf/meta/llama-3.3-70b-instruct-fp8-fast  → 200 {success,result:{response,usage}}.
+// POST /_mode also takes {"stt":"ok"|"silence"|"500"|"hang"} and {"llm":"ok"|"long"|"long-once"|"link"|"500"|"hang"}
+//   (one or several keys in one call; long-once = the next answer too long, then ok by itself; hang = answers after 20 s).
+// GET /_voice → [{"bytes":n,"seconds":n}], one per speech call whose audio decoded: SIZES ONLY (bytes = the decoded WAV,
+//   seconds = its data / 32000). The fake never keeps a clip, a prompt or an answer, and prints nothing.
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -24,6 +33,14 @@ export const LABEL_NAME = 'brief-demo';
 export const LABEL_ID = 'Label_1';
 export const SEND_MODES = ['ok', '400', '500', 'hang', '401-once'] as const;
 export type SendMode = (typeof SEND_MODES)[number];
+export const STT_MODES = ['ok', 'silence', '500', 'hang'] as const;
+export const LLM_MODES = ['ok', 'long', 'long-once', 'link', '500', 'hang'] as const;
+export type SttMode = (typeof STT_MODES)[number];
+export type LlmMode = (typeof LLM_MODES)[number];
+export const STT_MODEL = '@cf/openai/whisper-large-v3-turbo';
+export const LLM_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+export const HEARD = 'Say Thursday at two instead, and thank him for the update.';
+export const REPLY = 'Thursday at two works for me instead. Thanks for the update.';
 export interface SentMail { to: string; from: string; subject: string; inReplyTo: string | null; references: string | null; threadId: string; body: string }
 export const SCOPE = 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.readonly';
 const BODY_MAX = 1_000_000;
@@ -31,6 +48,29 @@ const BODY_MAX = 1_000_000;
 const HERE = new URL('./', import.meta.url);
 const ds = JSON.parse(readFileSync(new URL('../../src/data/dataset.json', HERE), 'utf8')) as Dataset;
 const recorded = JSON.parse(readFileSync(new URL('./fixtures/dry-run.json', HERE), 'utf8')) as { rows: Record<string, Array<{ status: number; content?: string }>> };
+
+/** The 44-byte header the Worker puts in front of the samples (BRIEF-D5 3.3): the reason it is wrong, or null. */
+export function wavProblem(wav: Buffer): string | null {
+  if (wav.length < 44) return 'short';
+  const tag = (at: number): string => wav.toString('latin1', at, at + 4);
+  if (tag(0) !== 'RIFF') return 'riff';
+  if (wav.readUInt32LE(4) !== wav.length - 8) return 'riff size';
+  if (tag(8) !== 'WAVE') return 'wave';
+  if (tag(12) !== 'fmt ') return 'fmt';
+  if (wav.readUInt32LE(16) !== 16) return 'fmt size';
+  if (wav.readUInt16LE(20) !== 1) return 'format';
+  if (wav.readUInt16LE(22) !== 1) return 'channels';
+  if (wav.readUInt32LE(24) !== 16000) return 'rate';
+  if (wav.readUInt32LE(28) !== 32000) return 'byte rate';
+  if (wav.readUInt16LE(32) !== 2) return 'block align';
+  if (wav.readUInt16LE(34) !== 16) return 'bits';
+  if (tag(36) !== 'data') return 'data';
+  if (wav.readUInt32LE(40) !== wav.length - 44) return 'data size';
+  return null;
+}
+
+const LONG_REPLY = `${'Thursday at two works for me instead and thanks for the update. '.repeat(4)}`.slice(0, 199) + '.'; // 200 characters
+const LINK_REPLY = 'Thursday at two works for me. See https://example.com/pay for the update.';
 
 const b64url = (s: string): string => Buffer.from(s, 'utf8').toString('base64url');
 
@@ -189,7 +229,10 @@ export function createFake(opts: { start?: Date; hangMs?: number } = {}): Server
   const events = fakeEvents(start);
   const seen: Array<{ method: string; path: string }> = [];
   const sent: SentMail[] = [];
+  const voice: Array<{ bytes: number; seconds: number }> = [];
   let mode: SendMode = 'ok';
+  let stt: SttMode = 'ok';
+  let llm: LlmMode = 'ok';
   let n = 0;
 
   const send = (res: ServerResponse, status: number, obj: unknown): void => {
@@ -207,13 +250,61 @@ export function createFake(opts: { start?: Date; hangMs?: number } = {}): Server
     try {
       if (method === 'GET' && path === '/_seen') return send(res, 200, { seen });
       if (method === 'GET' && path === '/_sent') return send(res, 200, sent);
+      if (method === 'GET' && path === '/_voice') return send(res, 200, voice);
       if (method === 'POST' && path === '/_mode') {
         const raw = await readBody(req);
-        let want: unknown;
-        try { want = raw === null ? undefined : (JSON.parse(raw) as { send?: unknown }).send; } catch { want = undefined; }
-        if (typeof want !== 'string' || !(SEND_MODES as readonly string[]).includes(want)) return send(res, 400, { error: 'bad_mode' });
-        mode = want as SendMode;
-        return send(res, 200, { send: mode });
+        let want: Record<string, unknown> = {};
+        try { want = raw === null ? {} : (JSON.parse(raw) as Record<string, unknown>); } catch { want = {}; }
+        const lists: Record<string, readonly string[]> = { send: SEND_MODES, stt: STT_MODES, llm: LLM_MODES };
+        const keys = Object.keys(want ?? {});
+        // every key must be known with a listed value, at least one key; nothing changes otherwise (as on day 4)
+        if (want === null || typeof want !== 'object' || keys.length === 0 || keys.some((k) => !(k in lists) || typeof want[k] !== 'string' || !lists[k].includes(want[k] as string))) {
+          return send(res, 400, { error: 'bad_mode' });
+        }
+        if ('send' in want) mode = want.send as SendMode;
+        if ('stt' in want) stt = want.stt as SttMode;
+        if ('llm' in want) llm = want.llm as LlmMode;
+        return send(res, 200, { send: mode, stt, llm });
+      }
+      if (method === 'POST' && (path === `/ai/run/${STT_MODEL}` || path === `/ai/run/${LLM_MODEL}`)) {
+        const raw = await readBody(req);
+        if (raw === null) return send(res, 413, { error: 'too_large' });
+        const fail = (status: number, code: number, message: string) => send(res, status, { success: false, errors: [{ code, message }] });
+        let body: Record<string, unknown>;
+        try { body = JSON.parse(raw) as Record<string, unknown>; } catch { return fail(400, 9000, 'fake: bad json'); }
+        if (body === null || typeof body !== 'object') return fail(400, 9000, 'fake: bad json');
+        const hang = (answer: unknown): void => {
+          const t = setTimeout(() => { if (!res.destroyed) send(res, 200, answer); }, opts.hangMs ?? 20_000);
+          t.unref();
+        };
+        if (path === `/ai/run/${LLM_MODEL}`) {
+          const answer = (response: string) => ({ success: true, result: { response, usage: { neurons: 9.3 } } });
+          if (llm === '500') return fail(500, 3040, 'fake: internal error');
+          if (llm === 'hang') return hang(answer(REPLY));
+          if (llm === 'long') return send(res, 200, answer(LONG_REPLY));
+          if (llm === 'long-once') { llm = 'ok'; return send(res, 200, answer(LONG_REPLY)); }
+          if (llm === 'link') return send(res, 200, answer(LINK_REPLY));
+          return send(res, 200, answer(REPLY));
+        }
+        // speech to text: the header first, then the two options; sizes are all it keeps
+        if (typeof body.audio !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(body.audio)) return fail(400, 3030, 'Failed to decode audio file. Ensure it is a valid audio format.');
+        const wav = Buffer.from(body.audio, 'base64');
+        const seconds = Math.max(0, wav.length - 44) / 32000;
+        voice.push({ bytes: wav.length, seconds });
+        if (wavProblem(wav)) return fail(400, 3030, 'Failed to decode audio file. Ensure it is a valid audio format.');
+        if (body.language !== 'en' || body.vad_filter !== true) return fail(400, 9000, 'fake: language and vad_filter are required');
+        if (stt === '500') return fail(500, 3040, 'fake: internal error');
+        const silent = stt === 'silence';
+        const answer = {
+          success: true,
+          result: {
+            text: silent ? '' : HEARD, word_count: silent ? 0 : 10,
+            transcription_info: { language: 'en', duration: seconds, duration_after_vad: silent ? 0 : seconds },
+            usage: { neurons: 0.78 * seconds },
+          },
+        };
+        if (stt === 'hang') return hang(answer);
+        return send(res, 200, answer);
       }
       if (method === 'POST' && path === '/gmail/v1/users/me/messages/send') {
         const raw = await readBody(req);

@@ -13,6 +13,8 @@ export { memoryBudget, memoryCounterStore, dailyBudget, allBudgets, dayKey } fro
 export type { CounterStore } from './budget.ts';
 export { FREE_CHAIN } from './openrouter.ts';
 export { LIMITS } from './validate.ts';
+export { SPOKEN_MODEL, checkSpoken, spokenChange } from './spoken.ts';
+export type { AiRun, SpokenInput, SpokenResult } from './spoken.ts';
 
 /** 'openrouter' or 'claude' (opts.provider, then env MODEL_PROVIDER, default openrouter); anything else throws. */
 export function providerOf(opts: TriageOptions): 'openrouter' | 'claude' {
