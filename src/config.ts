@@ -17,6 +17,18 @@ export const REQUIRE_PAIRING: boolean = env.VITE_REQUIRE_PAIRING === '1' || env.
 /** The URL switches below exist on the dev server only (review finding 14): the hosted build ignores the query. */
 export const URL_SWITCHES: boolean = env.DEV === true
 
+/** The backend address when `VITE_API_BASE` is not set (the Worker serves /app/ and /api/ on this host). The ONLY place
+ * the host is written: the glasses' « Sign-in needed » lines and the phone-side page take it from here. */
+export const DEFAULT_HOST = 'brief.appfinishers.com'
+/** The backend's host (BRIEF-D4.md § 3.11): `VITE_API_BASE`'s host when set, else DEFAULT_HOST. */
+export const BACKEND_HOST: string = backendHostOf(API_BASE)
+/** Where the phone signs in: `<host>/connect`, written as plain text (Google refuses sign-in inside the WebView). */
+export const CONNECT_ADDRESS: string = `${BACKEND_HOST}/connect`
+
+export function backendHostOf(apiBase: string): string {
+  return apiBase ? new URL(apiBase).host : DEFAULT_HOST
+}
+
 export function dataSourceOf(v: unknown): DataSource {
   return v === 'backend' ? 'backend' : 'static'
 }

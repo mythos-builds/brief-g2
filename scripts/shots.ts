@@ -30,7 +30,8 @@ const API = 'http://127.0.0.1:9898'
 const ds = JSON.parse(readFileSync(join(APP, 'src', 'data', 'dataset.json'), 'utf8')) as Dataset
 const supplier = eventsOf(ds).find((e) => e.brief)
 if (!supplier) throw new Error('the dataset has no event with a brief')
-const be = stubBackend(buildItems(ds, ['mail'], STATIC_ALTS), { demoCalendar: { now: '13:52', events: [supplier] } })
+// day 4: two pairing codes for the paired send runs (dev-only `?pair=`, src/dev-pair.ts), the same stub account
+const be = stubBackend(buildItems(ds, ['mail'], STATIC_ALTS), { demoCalendar: { now: '13:52', events: [supplier] }, codes: ['111111', '222222'] })
 const extra = { signinNeeded: false } // shots only: every items call answers 403 signin_needed (the live F path)
 
 function serveStub(): Promise<Server> {
@@ -107,7 +108,7 @@ const RUNS: Run[] = [
       { input: 'click', expect: 'B', contains: 'TG · Sam (Crew group)', shot: '09-B-telegram.png' },
       { input: 'click', expect: 'C', contains: 'To: Sam · Telegram, Crew group', shot: '17-C-telegram-confirm.png' },
       { input: 'down', settle: 600 },
-      { input: 'click', expect: 'SENT', contains: 'Sent on Telegram √', shot: '18-sent-telegram.png' },
+      { input: 'click', expect: 'SENT', contains: 'Demo: no real message was sent', shot: '18-sent-telegram.png' },
     ],
   },
   {
@@ -127,6 +128,10 @@ const RUNS: Run[] = [
       { input: 'down', expect: 'F', contains: "Couldn't load", shot: '16-F-error.png' },
       { input: 'down', expect: 'F', contains: 'Too many tries', shot: '20-F-later.png' },
       { input: 'down', expect: 'F', contains: "Today's demo limit", shot: '21-F-limit.png' },
+      // day 4 (BRIEF-D4.md § 3.11): the three new states, after a send or a skip
+      { input: 'down', expect: 'F', contains: 'Daily send limit reached. Try tomorrow.', shot: '28-F-send-limit.png' },
+      { input: 'down', expect: 'F', contains: 'Already handled.', shot: '29-F-already-handled.png' },
+      { input: 'down', expect: 'F', contains: 'Not confirmed. Check Sent on your phone.', shot: '30-F-not-confirmed.png' },
     ],
   },
   {
@@ -149,11 +154,11 @@ const RUNS: Run[] = [
     ],
   },
   {
-    query: '',
+    query: '?at=13:53', // the device clock, fixed for the walk: the PNG is the same at every run
     backend: true,
     setup: () => Object.assign(be.state, { down: false, calendarError: true }),
     allowConsole: /^\[fetch\] 500 Internal Server Error http:\/\/127\.0\.0\.1:8788\/api\/calendar$/,
-    steps: [{ expect: 'A', contains: '2 need you', absent: 'next', shot: '24-A-home-no-calendar.png', through: true }],
+    steps: [{ expect: 'A', contains: '2 need you · 13:53', absent: 'next', shot: '24-A-home-no-calendar.png', through: true }],
   },
   {
     query: '',
@@ -163,7 +168,8 @@ const RUNS: Run[] = [
       extra.signinNeeded = true
     },
     allowConsole: /^\[fetch\] 403 Forbidden http:\/\/127\.0\.0\.1:8788\/api\/items$/,
-    steps: [{ expect: 'F', contains: 'Sign-in needed — open brief.appfinishers.com', shot: '25-F-signin-backend.png', through: true }],
+    // day 4: three lines; this dev server's backend is the stub, so the host is 127.0.0.1:8788 (src/config.ts)
+    steps: [{ expect: 'F', contains: 'Sign-in needed\n1. On your phone, open 127.0.0.1:8788/connect', shot: '25-F-signin-backend.png', through: true }],
   },
   {
     query: '',
@@ -177,6 +183,48 @@ const RUNS: Run[] = [
       { expect: 'F', contains: 'No connection', shot: '26-F-offline-backend.png', through: true },
       // the stub comes back; NO input: the app retries by itself (2 s, 5 s, 15 s, then every 30 s)
       { before: () => (be.state.down = false), expect: 'E', contains: '14:00 · Supplier call', shot: '27-E-after-retry.png', through: true },
+    ],
+  },
+  // ---- day 4 (BRIEF-D4.md § 4.1, 4.4): paired through `?pair=` on the dev server, REAL_SEND on in the stub ----
+  {
+    query: '?pair=111111',
+    backend: true,
+    setup: () => Object.assign(be.state, { down: false, calendarError: false, realSend: 'on', sendOutcome: 'failed' }),
+    allowConsole: /^\[fetch\] 502 .*http:\/\/127\.0\.0\.1:8788\/api\/items\/[^/]+\/send$/,
+    steps: [
+      { expect: 'A', contains: '2 need you', through: true },
+      { input: 'click', expect: 'B', contains: 'From Marco' },
+      { input: 'click', expect: 'C', contains: 'To: Marco Bellini' },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'C', contains: 'Not sent. Send now to try again.', shot: '31-C-not-sent-backend.png', through: true },
+      { before: () => (be.state.sendOutcome = 'ok'), input: 'down', settle: 600 },
+      { input: 'click', expect: 'SENT', contains: 'Sent √', absent: 'Demo:', shot: '32-sent-real-backend.png', through: true },
+    ],
+  },
+  {
+    query: '?pair=222222',
+    backend: true,
+    setup: () => Object.assign(be.state, { realSend: 'on', sendOutcome: 'unknown' }),
+    allowConsole: /^\[fetch\] 504 .*http:\/\/127\.0\.0\.1:8788\/api\/items\/[^/]+\/send$/,
+    steps: [
+      { expect: 'A', contains: '1 need you', through: true },
+      { input: 'click', expect: 'B', contains: 'From Priya' },
+      { input: 'click', expect: 'C', contains: 'To: Priya' },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'F', contains: 'Not confirmed. Check Sent on your phone.', shot: '33-F-not-confirmed-backend.png', through: true },
+    ],
+  },
+  {
+    query: '',
+    backend: true,
+    setup: () => Object.assign(be.state, { realSend: 'off', sendOutcome: 'ok' }),
+    steps: [
+      { expect: 'E', contains: '14:00 · Supplier call', through: true },
+      { input: 'click', expect: 'A', contains: '2 need you' },
+      { input: 'click', expect: 'B', contains: 'From Marco' },
+      { input: 'click', expect: 'C', contains: 'To: Marco Bellini' },
+      { input: 'down', settle: 600 },
+      { input: 'click', expect: 'SENT', contains: 'Demo: no real mail was sent', shot: '34-sent-demo-backend.png', through: true },
     ],
   },
 ]
@@ -201,7 +249,8 @@ async function waitFor(what: string, fn: () => Promise<boolean>, timeoutMs: numb
 }
 
 function sim(...args: string[]): string {
-  return execFileSync(SIM, args, { encoding: 'utf8', timeout: 90_000 }).trim()
+  // SIM_VOLUME empty: no named volume, so every run starts with an empty SDK storage (tools/sim.sh)
+  return execFileSync(SIM, args, { encoding: 'utf8', timeout: 90_000, env: { ...process.env, SIM_VOLUME: '' } }).trim()
 }
 
 interface ConsoleEntry {

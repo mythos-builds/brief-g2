@@ -12,6 +12,14 @@
       <p id="source" role="status" aria-live="polite">Not connected yet.</p>
       <button id="disconnect" type="button" hidden>Disconnect</button>
     </section>
+    <section id="signin-help" aria-labelledby="signin-title">
+      <h2 id="signin-title">Use your own inbox</h2>
+      <ol>
+        <li>On your phone, open <code id="connect-address"></code> in your browser.
+          <button id="connect-copy" type="button">Copy address</button> <span id="connect-copied" role="status" aria-live="polite"></span></li>
+        <li>Type the 6-digit code in the Even app, on Brief's page (below).</li>
+      </ol>
+    </section>
     <form id="pair" hidden autocomplete="off">
       <label for="pair-code">Have a code?</label>
       <input id="pair-code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456" required />

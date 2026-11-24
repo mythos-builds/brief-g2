@@ -6,8 +6,11 @@ import type { CalEvent, Item, Source } from '../logic/types.ts'
 import { validAlts, validDraft } from '../logic/items.ts'
 
 export type Mode = 'demo' | 'paired'
-/** What the glasses say when a call fails (an F state), never a raw error. */
-export type Failure = 'offline' | 'later' | 'limit' | 'signin' | 'error'
+/** What the glasses say when a call fails (an F state), never a raw error. BRIEF-D4.md § 3.1 / 3.11 adds, for a send or
+ * a skip: `handled` (409 `already_handled`) · `failed` (502 `send_failed`: nothing left, the item is offered again) ·
+ * `unknown` (504 `send_unknown`, or any other 5xx on a send: it may have left, never offered again) · `sendcap`
+ * (429 `daily_cap` on a send: the account's daily limit of real sends). */
+export type Failure = 'offline' | 'later' | 'limit' | 'signin' | 'error' | 'handled' | 'failed' | 'unknown' | 'sendcap'
 /** send / skip only: the item is unknown (404) or already handled (409) on the server → reload the list. */
 export type Gone = 'gone'
 
@@ -25,7 +28,10 @@ export interface KeyValue {
   set(key: string, value: string): Promise<boolean>
 }
 
-export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{
+export type FetchLike = (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
+) => Promise<{
   status: number
   json(): Promise<unknown>
 }>
@@ -36,7 +42,12 @@ export interface ClientOptions {
   storage: KeyValue
   /** A paired session got a 401: it is forgotten (storage cleared) and the phone-side page must say so. */
   onPairedDropped?: () => void
+  /** « Disconnect »: how long the logout call may take before the token is forgotten anyway (BRIEF-D4.md § 4.3). */
+  logoutMs?: number
 }
+
+/** BRIEF-D4.md § 4.3: the logout call gets 3 s at most. */
+export const LOGOUT_MS = 3000
 
 /** The SDK bridge's own storage (`getLocalStorage` / `setLocalStorage`, index.d.ts) as the client's KeyValue. */
 export function bridgeStorage(bridge: {
@@ -60,10 +71,16 @@ interface Session {
 
 /** HTTP status (+ the contract's error code) → what the glasses say. 403 `signin_needed` (BRIEF-D3.md § 3.1): the
  * paired account's Google grant is dead → « Sign-in needed »; the session itself is kept (a new sign-in revives it). */
-export function failureOf(status: number, code: unknown): Failure | Gone {
-  if (status === 404 || status === 409) return 'gone'
-  if (status === 429) return code === 'daily_cap' ? 'limit' : 'later'
+export function failureOf(status: number, code: unknown, op: 'send' | 'other' = 'other'): Failure | Gone {
+  if (status === 409) return code === 'already_handled' ? 'handled' : 'gone'
+  if (status === 404) return 'gone'
+  if (status === 429) return code === 'daily_cap' ? (op === 'send' ? 'sendcap' : 'limit') : 'later'
   if (status === 401 || status === 403) return 'signin'
+  if (op === 'send' && status >= 500) {
+    // only the Worker's own `send_failed` means « nothing left, for sure »; any other 5xx on a send may have left
+    if (status === 502 && code === 'send_failed') return 'failed'
+    return 'unknown'
+  }
   return 'error'
 }
 
@@ -148,13 +165,15 @@ export function createClient(opts: ClientOptions) {
   let session: Session | undefined
   let raw = new Map<string, Item>()
 
-  async function call(method: string, path: string, body?: unknown, auth = true): Promise<{ status: number; json: unknown }> {
+  async function call(method: string, path: string, body?: unknown, auth = true, signal?: AbortSignal): Promise<{ status: number; json: unknown }> {
     const headers: Record<string, string> = {}
     if (body !== undefined) headers['content-type'] = 'application/json'
     if (auth && session) headers.authorization = `Bearer ${session.token}`
     let res: Awaited<ReturnType<FetchLike>>
     try {
-      res = await opts.fetch(`${opts.base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+      const init: Parameters<FetchLike>[1] = { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }
+      if (signal) init.signal = signal
+      res = await opts.fetch(`${opts.base}${path}`, init)
     } catch {
       throw new BackendError('offline')
     }
@@ -239,7 +258,7 @@ export function createClient(opts: ClientOptions) {
     const choice = choiceFor(raw.get(id), shown)
     if (choice === undefined) throw new BackendError('error')
     const r = await authed('POST', `/api/items/${encodeURIComponent(id)}/send`, { choice })
-    if (r.status !== 200) throw new BackendError(failureOf(r.status, codeOf(r.json)))
+    if (r.status !== 200) throw new BackendError(failureOf(r.status, codeOf(r.json), 'send'))
     const o = (r.json ?? {}) as { sent?: unknown; real?: unknown }
     if (o.sent !== true) throw new BackendError('error')
     return { real: o.real === true }
@@ -257,8 +276,22 @@ export function createClient(opts: ClientOptions) {
     return { mode, now, events: events.map((e) => ({ ...e })) }
   }
 
-  /** The phone-side « Disconnect »: the paired session is forgotten here and in the SDK storage; back to demo. */
+  /**
+   * The phone-side « Disconnect » (BRIEF-D4.md § 4.3): first `POST /api/session/logout` with the paired token (3 s at
+   * most, any failure ignored), then the token is forgotten here and in the SDK storage whatever the answer; back to demo.
+   */
   async function disconnect(): Promise<void> {
+    if (session?.mode === 'paired') {
+      const abort = new AbortController()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const late = new Promise<void>((ok) => (timer = setTimeout(ok, opts.logoutMs ?? LOGOUT_MS)))
+      try {
+        await Promise.race([call('POST', '/api/session/logout', undefined, true, abort.signal).catch(() => undefined), late])
+      } finally {
+        clearTimeout(timer)
+        abort.abort()
+      }
+    }
     await forgetPaired()
   }
 

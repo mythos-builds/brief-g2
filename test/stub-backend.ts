@@ -1,5 +1,7 @@
-// An in-memory backend built from BRIEF-D2.md § 3 and BRIEF-D3.md § 3 (the contract), for the client tests and the
-// backend shots. Not the Worker (job C): only what the app sees: status codes, {"error":"<code>"} bodies, sessions by
+// An in-memory backend built from BRIEF-D2.md § 3, BRIEF-D3.md § 3 and BRIEF-D4.md § 3 (the contract), for the client
+// tests and the backend shots. Day 4: the send outcomes (`REAL_SEND`, 502 `send_failed`, 504 `send_unknown`, 429
+// `daily_cap` of real sends, 409 `already_handled`), and `POST /api/session/logout`.
+// Not the Worker (job C): only what the app sees: status codes, {"error":"<code>"} bodies, sessions by
 // bearer token, items minus handled (demo: per session; paired: per ACCOUNT), `GET /api/calendar`, and 403
 // `signin_needed` for a paired account whose Google grant is dead.
 import { randomBytes } from 'node:crypto'
@@ -41,6 +43,12 @@ export function stubBackend(items: Item[], opts: StubOptions = {}) {
     calendarError: false,
     deadGrant: new Set<string>(), // accounts whose Google grant is dead → 403 signin_needed
     sent: [] as { id: string; choice: number }[],
+    /** BRIEF-D4.md § 3.2 f: `REAL_SEND` exactly "on" → a real send (`"real":true`); anything else → `"real":false`. */
+    realSend: 'off' as string,
+    /** The outcome of the next real send (§ 3.4): ok = 200, failed = 502 (claim released), unknown = 504 (stays handled). */
+    sendOutcome: 'ok' as 'ok' | 'failed' | 'unknown',
+    sendDailyCap: 20, // § 3.2 g, per account; counted when claimed, never given back
+    realSends: new Map<string, number>(),
   }
   const demoCalendar: StubCalendar = opts.demoCalendar ?? { now: '12:41', events: [] }
   const pairedCalendar: StubCalendar = opts.pairedCalendar ?? { now: '09:00', events: [] }
@@ -81,6 +89,12 @@ export function stubBackend(items: Item[], opts: StubOptions = {}) {
       return answer(200, { session: t, mode: 'paired', expires_in: 604800 })
     }
     if (!sess) return err(401, 'unauthorized')
+    if (init.method === 'POST' && path === '/api/session/logout') {
+      // § 3.8: Bearer, empty body → 200 {"ok":true}, the session is gone; a second call → 401 (above)
+      if (init.body !== undefined && init.body !== '') return err(400, 'bad_request')
+      sessions.delete(bearer as string)
+      return answer(200, { ok: true })
+    }
     const handled = handledOf(sess)
     const pool = sess.mode === 'paired' ? (opts.pairedItems ?? items) : items
     if (sess.mode === 'paired' && sess.account && state.deadGrant.has(sess.account)) return err(403, 'signin_needed')
@@ -104,9 +118,24 @@ export function stubBackend(items: Item[], opts: StubOptions = {}) {
         if (keys.length !== 1 || keys[0] !== 'choice' || typeof choice !== 'number' || !Number.isInteger(choice) || choice < 0 || choice > 4)
           return err(400, 'bad_request')
         if (choice > 0 && item.alts[choice - 1] === undefined) return err(400, 'bad_request')
-        handled.add(id)
+        if (sess.mode !== 'paired' || state.realSend !== 'on') {
+          handled.add(id)
+          state.sent.push({ id, choice })
+          return answer(200, { sent: true, real: false })
+        }
+        const acct = sess.account ?? ''
+        const used = state.realSends.get(acct) ?? 0
+        if (used >= state.sendDailyCap) return err(429, 'daily_cap')
+        state.realSends.set(acct, used + 1) // g: counted when claimed, never given back
+        handled.add(id) // h: the claim
         state.sent.push({ id, choice })
-        return answer(200, { sent: true, real: false })
+        if (state.sendOutcome === 'failed') {
+          handled.delete(id) // definite failure: the claim is released, the item is offered again
+          state.sent.pop()
+          return err(502, 'send_failed')
+        }
+        if (state.sendOutcome === 'unknown') return err(504, 'send_unknown') // stays handled, never offered again
+        return answer(200, { sent: true, real: true })
       }
       if (init.body !== undefined && init.body !== '') return err(400, 'bad_request')
       handled.add(id)

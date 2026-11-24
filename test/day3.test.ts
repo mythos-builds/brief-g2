@@ -197,7 +197,7 @@ test('3.3 paired: « handled » is per ACCOUNT: another session of the same acco
     (await b.items(['mail'])).map((i) => i.id),
     ['mail-1'],
   )
-  await rejectsWith(b.skip(first.id), 'gone')
+  await rejectsWith(b.skip(first.id), 'handled') // BRIEF-D4.md § 3.11: 409 already_handled → « Already handled. »
   // demo stays per session
   const d1 = createClient({ base: BASE, fetch: be.fetch, storage: memoryStorage() })
   assert.equal((await d1.items(['mail'])).length, 2)

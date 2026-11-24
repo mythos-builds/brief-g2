@@ -72,16 +72,18 @@ export interface Item {
   alts: string[] // already validated (see validAlts)
 }
 
-export type StateName = 'signin' | 'offline' | 'working' | 'error' | 'later' | 'limit'
+/** BRIEF-D4.md § 3.11 adds three, after a send or a skip: `sendcap` (429 `daily_cap` on a send), `handled` (409
+ * `already_handled`: then the list is read again) and `unknown` (504 `send_unknown`: a press goes on to the next item). */
+export type StateName = 'signin' | 'offline' | 'working' | 'error' | 'later' | 'limit' | 'sendcap' | 'handled' | 'unknown'
 
 export type Screen =
   | { kind: 'home' }
   | { kind: 'mail'; id: string; draft: string } // B (B′ for Telegram)
   | { kind: 'alts'; id: string; draft: string } // D″, draft = the one B shows, kept on Back
-  | { kind: 'confirm'; id: string; draft: string } // C (C′)
-  | { kind: 'sent'; id: string; source: Source; nextIndex: number } // `Sent ✓`, faked
+  | { kind: 'confirm'; id: string; draft: string; failed?: boolean } // C (C′); failed = the last send got 502 `send_failed`
+  | { kind: 'sent'; id: string; source: Source; nextIndex: number; real: boolean } // `Sent ✓`; real = the Worker said so
   | { kind: 'brief'; page: number } // E
-  | { kind: 'state'; which: StateName } // F
+  | { kind: 'state'; which: StateName; nextIndex?: number } // F; `unknown`: the item a press opens next
 
 export interface AppState {
   items: Item[] // the items that still need you, in display order

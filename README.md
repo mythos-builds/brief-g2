@@ -47,21 +47,32 @@ and the simulator packages (`cd tools && npm ci --ignore-scripts`).
   (`https://brief.appfinishers.com/app/` → `/api/…`); `VITE_API_BASE=http://127.0.0.1:8787` points it at a local Worker.
   On start it opens a demo session (a stored paired session wins), loads the items, and shows the same screens.
   `Send now` posts only the index of the reply shown (0 = the draft, 1–4 = an alternative) and shows `Sent` only after the
-  Worker answers 200; on day 2 the Worker sends nothing. A failure shows a plain line on the glasses, never an error code.
+  Worker answers 200. Whether a real mail leaves is the Worker's decision (day 4: paired, `REAL_SEND` on); its answer
+  `"real":false` adds the line `Demo: no real mail was sent` (`Demo: no real message was sent` for a Telegram item). `send_failed` keeps C with
+  `Not sent. Send now to try again.` (the cursor is back on `Back`, so the line names the row)
+  (`Send now` posts the same index again) · `send_unknown` → `Not confirmed. Check Sent on your phone.` (a press opens the
+  next item) · `daily_cap` → `Daily send limit reached. Try tomorrow.` · `already_handled` → `Already handled.`, then the
+  list is read again. A failure shows a plain line on the glasses, never an error code.
 - Calendar (day 3): after the list, the app asks `GET /api/calendar`; its `now` is the clock in the header and its events
   give `next 14:00 Supplier call` and the meeting brief (E, due from 10 minutes before an event that has a brief until
-  it starts). A failed calendar call never blocks the list: the header then shows the counts only (no clock, no `next`).
+  it starts). A failed calendar call never blocks the list: the header then shows the device's own clock (local `HH:MM`) and no `next`.
 - `No connection — retrying` retries by itself after 2 s, 5 s, 15 s, then every 30 s; a press retries at once; the timer
   stops once the list loads and while the app is in the background (SDK events 5 / 6 / 7; it resumes on 4).
-- A paired account whose Google grant is dead (403 `signin_needed`) shows « Sign-in needed » with the address to open;
-  the paired session is kept. A paired session the server no longer knows (401) is forgotten, never silently swapped for
+- A paired account whose Google grant is dead (403 `signin_needed`) shows « Sign-in needed » and two numbered steps with
+  `<host>/connect` (the host from `src/config.ts`); the phone-side page shows the same steps, the address as plain text and
+  a copy button. The paired session is kept. A paired session the server no longer knows (401) is forgotten, never silently swapped for
   demo data: the glasses show « Sign-in needed », the phone-side page says the session ended, and a press shows demo data.
 - The phone-side page shows which data the glasses show (« Demo data » or « Your inbox »), the code form, and
-  « Disconnect » while paired (forgets the paired session in the SDK storage; back to demo). There is no logout route in
-  the contract: the forgotten session token stays valid on the server until it expires.
+  « Disconnect » while paired: `POST /api/session/logout` first (3 s at most, any failure ignored), then the session is
+  forgotten in the SDK storage whatever the answer; the page says the session is closed; back to demo.
 - Pairing: the phone-side page shows « Have a code? »; the 6-digit code from `brief.appfinishers.com/connect` gives a
   paired session, kept with the SDK's storage. `VITE_REQUIRE_PAIRING=1` makes the glasses show « Sign-in needed » until
   then (default off = demo mode).
+- Dev pairing, for the simulator (it cannot type in the phone-side page): on the dev server only (`import.meta.env.DEV`),
+  `?pair=<6 digits>` in the app's address is claimed through `/api/pair/claim` at start, stored like a typed code, then
+  removed from the address (`src/dev-pair.ts`; `npm test` builds both production builds and finds it in no file of
+  `dist/`). With the simulator: `tools/sim.sh start 'http://127.0.0.1:5174/?pair=123456'`. `sim.sh` keeps the simulator
+  user's home on the podman volume `er-sim-data` (`SIM_VOLUME=` for none, `sim.sh wipe` removes it); see Known limits.
 - `SOURCES` (`src/config.ts`) is mail only by default; with Telegram on, Telegram items join the same list with a « TG » tag.
   The `?sources=`, `?at=` and `?states=1` URL switches work on the dev server only.
 
@@ -71,9 +82,20 @@ and the simulator packages (`cd tools && npm ci --ignore-scripts`).
 `next` (`23`), A when the calendar call fails (`24`), « Sign-in needed » from a 403 (`25`), « No connection » (`26`) and
 the list back after the automatic retry, with no press (`27`).
 
+Day 4: `28` to `30` are the three new F lines (static preview: `Daily send limit…`, `Already handled.`, `Not confirmed…`);
+`31` to `34` are backend mode, paired through `?pair=` with the stub's `REAL_SEND` on: C after `send_failed` (`31`), `Sent`
+after a real send, no demo line (`32`), `Not confirmed` after `send_unknown` (`33`), and the demo session's `Sent` with
+`Demo: no real mail was sent` (`34`). Changed on day 4: `06` and `18` (the demo line), `13` and `25` (« Sign-in needed »
+in three lines; `25` shows the stub's host `127.0.0.1:8788`), `24` (the device clock in the header; the walk fixes
+it with the dev-only `?at=13:53`, so the PNG is the same at every run). Every other PNG is byte-identical.
+
 `19-double-press-sim.png`: on a double-press the app calls the system exit dialog (`shutDownPageContainer(1)`). The
 simulator (0.9.5) draws no dialog: the glasses canvas goes black. What the real glasses show is not checked yet.
 
 ## Known limits
 
 - The exit dialog (double press) draws nothing in the simulator 0.9.5 (`19-double-press-sim.png` is black); real glasses not checked.
+- The simulator 0.9.5 keeps the SDK storage (`setLocalStorage`) in memory only: after a dev pairing, nothing on disk holds
+  it (seen 2026-11-23: no file of the simulator's home holds the key, even after a graceful `podman stop`), so a
+  `sim.sh stop` + `start` comes back unpaired even with the volume; pass `?pair=` with a fresh code again. Real glasses
+  keep it in the Even app (not checked here).

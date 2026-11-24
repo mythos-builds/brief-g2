@@ -53,12 +53,12 @@ test('start: a demo session, then GET /api/items → the same list as static dat
   assert.equal(storage.data.size, 0)
 })
 
-test('Send now: choice 0 = the draft shown, 1–4 = the alternative picked; Sent only after a 200; then 409 → gone', async () => {
+test('Send now: choice 0 = the draft shown, 1–4 = the alternative picked; Sent only after a 200; then 409 → handled', async () => {
   const { be, client } = setup()
   const items = await client.items(['mail'])
   const marco = items[0]
   assert.deepEqual(await client.send(marco.id, marco.draft), { real: false })
-  await rejectsWith(client.send(marco.id, marco.draft), 'gone') // already handled: 409
+  await rejectsWith(client.send(marco.id, marco.draft), 'handled') // 409 already_handled (BRIEF-D4.md § 3.11; was 'gone' on day 2-3)
   const priya = items[1]
   assert.deepEqual(await client.send(priya.id, priya.alts[2]), { real: false })
   assert.deepEqual(be.state.sent, [
@@ -93,7 +93,7 @@ test('Skip → the skip route with an empty body; the item leaves the list', asy
     (await client.items(['mail'])).map((i) => i.id),
     ['mail-1'],
   )
-  await rejectsWith(client.skip(marco.id), 'gone')
+  await rejectsWith(client.skip(marco.id), 'handled') // 409 already_handled (BRIEF-D4.md § 3.11)
 })
 
 test('401 → one new demo session, once', async () => {

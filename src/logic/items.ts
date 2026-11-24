@@ -195,3 +195,8 @@ export function companyOf(email: string | undefined): string | undefined {
     .map((w) => capitalize(w))
     .join(' ')
 }
+
+/** The device's local clock as "HH:MM" (BRIEF-D4.md § 3.11: the header keeps a clock when the calendar call fails). */
+export function localClock(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}

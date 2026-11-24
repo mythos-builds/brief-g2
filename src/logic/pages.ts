@@ -4,21 +4,32 @@ import type { AppState, CalEvent, Dataset, Item, ListBox, PageSpec, StateName, T
 import { actItems, altItems, CONFIRM_ITEMS, findItem, LIST_OF } from './flow.ts'
 import { briefDueIn, eventsOf, homeLabel, needLine, nextOf, shownTime, summaryLine } from './items.ts'
 import { DRAFT_PREFIX } from './replies.ts'
+import { CONNECT_ADDRESS } from '../config.ts'
 import { LIST_ITEM_H, LIST_ITEM_PAD, MAX_LIST_ITEM_CHARS, MAX_TEXT_LINES, SCREEN_H, SCREEN_W, wrap } from './measure.ts'
 
 export const TEXT_PAD = 4
 // SCREENS.md writes `Sent ✓`, but the G2 firmware font has no U+2713 glyph (pretext advance width 0, and the
 // simulator draws nothing for it: docs/screens/ first run). √ (U+221A) is in the font and reads as a tick.
 export const CHECK = '√'
-export const DOMAIN = 'brief.appfinishers.com'
+/** BRIEF-D4.md § 3.11: the second line of `Sent` when the Worker answered `"real":false` (and always on static data). */
+export const DEMO_SENT_LINE = 'Demo: no real mail was sent'
+/** The same line for a Telegram item (a Telegram message is not a mail). */
+export const DEMO_SENT_LINE_TG = 'Demo: no real message was sent'
+// C's cursor starts on `Back` after every redraw (SCREENS.md C), so a bare press goes back: the line names the row to
+// pick (D4 test, row 23). BRIEF-D4.md § 3.11 said `Not sent. Press to try again.`; changed at the gate.
+export const NOT_SENT_LINE = 'Not sent. Send now to try again.'
 
 export const STATE_TEXT: Record<StateName, string> = {
-  signin: `Sign-in needed — open ${DOMAIN} on your phone, type the 6-digit code here`,
+  // three lines (tester FAIL F2 of day 3): the host comes from src/config.ts, never written twice
+  signin: `Sign-in needed\n1. On your phone, open ${CONNECT_ADDRESS}\n2. Type the 6-digit code in the Even app, on Brief's page`,
   offline: 'No connection — retrying',
   working: 'Working…',
   error: "Couldn't load your items. Nothing was sent. Press to try again.",
   later: 'Too many tries — wait a few minutes, then press to try again',
   limit: "Today's demo limit is reached. Nothing was sent. Try again tomorrow.",
+  sendcap: 'Daily send limit reached. Try tomorrow.',
+  handled: 'Already handled.',
+  unknown: 'Not confirmed. Check Sent on your phone.',
 }
 
 export interface PageContext {
@@ -99,11 +110,13 @@ function altsPage(item: Item): PageSpec {
   return { screen: 'D2', boxes: [text('hdr', 0, 0, SCREEN_W, 36, hdr), list(LIST_OF.alts, 44, 240, altItems(item))] }
 }
 
-function confirmPage(item: Item, draft: string): PageSpec {
+function confirmPage(item: Item, draft: string, failed = false): PageSpec {
   const who =
     item.source === 'telegram'
       ? [`To: ${item.name} · Telegram, ${item.chat}`, 'via your Brief bot']
       : [`To: ${item.fullName}`, fitLine(item.address, { kind: 'text', w: SCREEN_W, pad: TEXT_PAD })]
+  // after a 502 `send_failed` the same C stays; the line under `To:` says so (the 4-line rule keeps the draft whole)
+  if (failed) who[1] = NOT_SENT_LINE
   const content = [...who, draft].join('\n')
   return {
     screen: 'C',
@@ -135,10 +148,11 @@ export function pageFor(state: AppState, ctx: PageContext): PageSpec {
       if (!item) return homePage(state, ctx)
       if (s.kind === 'mail') return mailPage(item, s.draft)
       if (s.kind === 'alts') return altsPage(item)
-      return confirmPage(item, s.draft)
+      return confirmPage(item, s.draft, s.failed === true)
     }
     case 'sent': {
-      const msg = s.source === 'telegram' ? `Sent on Telegram ${CHECK}` : `Sent ${CHECK}`
+      const first = s.source === 'telegram' ? `Sent on Telegram ${CHECK}` : `Sent ${CHECK}`
+      const msg = s.real ? first : `${first}\n${s.source === 'telegram' ? DEMO_SENT_LINE_TG : DEMO_SENT_LINE}`
       return { screen: 'SENT', boxes: [text('sent', 0, 0, SCREEN_W, SCREEN_H, msg, true)] }
     }
     case 'brief': {
