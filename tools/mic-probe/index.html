@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8"><title>mic probe</title>
+<!-- D5 job S: waits for the bridge, makes its startup page, opens the glasses microphone, and once a second prints
+     MIC_PROBE {"events":n,"bytes":n,"rms":n} to the console (what the simulator's /api/console returns). Dev tool, not the app.
+     Serve: tools/mic-probe/serve.sh  (127.0.0.1 only; sdk.js is a symlink to the installed SDK made by that script). -->
+<script type="module">
+import { waitForEvenAppBridge, CreateStartUpPageContainer, TextContainerProperty, AudioInputSource } from './sdk.js'
+const bridge = await waitForEvenAppBridge()
+const page = new CreateStartUpPageContainer({ containerTotalNum: 1, textObject: [new TextContainerProperty({
+  xPosition: 0, yPosition: 0, width: 576, height: 288, borderWidth: 0, borderColor: 5, paddingLength: 4,
+  containerID: 1, containerName: 'probe', isEventCapture: 1, content: 'mic probe' })] })
+console.log('MIC_PROBE_START_PAGE', await bridge.createStartUpPageContainer(page))
+let events = 0, bytes = 0, sumSq = 0, n = 0
+bridge.onEvenHubEvent((ev) => {
+  const a = ev.audioEvent
+  if (!a) return
+  events++; bytes += a.audioPcm.length
+  const dv = new DataView(a.audioPcm.buffer, a.audioPcm.byteOffset, a.audioPcm.byteLength - (a.audioPcm.byteLength % 2))
+  for (let i = 0; i + 1 < a.audioPcm.byteLength; i += 2) { const s = dv.getInt16(i, true); sumSq += s * s; n++ }
+})
+console.log('MIC_PROBE_OPEN', await bridge.audioControl(true, AudioInputSource.Glasses))
+setInterval(() => {
+  console.log('MIC_PROBE ' + JSON.stringify({ events, bytes, rms: n ? Math.round(Math.sqrt(sumSq / n)) : 0 }))
+  events = 0; bytes = 0; sumSq = 0; n = 0
+}, 1000)
+</script>

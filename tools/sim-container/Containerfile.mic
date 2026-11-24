@@ -1,0 +1,11 @@
+# Even Hub simulator jail WITH a virtual microphone (D5, job S). New tag, the plain image (er-sim:bookworm) is untouched:
+#   podman build -t localhost/er-sim:mic -f tools/sim-container/Containerfile.mic tools/sim-container
+# A PulseAudio null sink named `mic` runs inside the container (no host sound, no root on the host); the sink's monitor is
+# the default source and the ALSA `pulse` plugin routes the simulator's ALSA capture to it. `sim.sh speak` plays a WAV into it.
+FROM localhost/er-sim:bookworm
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      pulseaudio pulseaudio-utils libasound2-plugins \
+    && rm -rf /var/lib/apt/lists/*
+USER sim
+WORKDIR /home/sim
