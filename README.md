@@ -3,6 +3,8 @@
 **The few messages that need you, on your Even Realities G2 glasses, each with a reply ready.
 One look, two presses, sent. Nothing ever leaves on its own.**
 
+**The film (2 min, the app in the Even Realities simulator):** https://brief-film.pages.dev/brief.mp4
+
 <p>
   <img src="docs/screens/01-A-home.png" width="49%" alt="Glasses screen: 2 need you, 12:41, next 14:00 Supplier call; two mails listed, the first one highlighted">
   <img src="docs/screens/02-B-mail.png" width="49%" alt="Glasses screen: a mail from Marco, its summary, a drafted reply, and the rows Send, Other answers, Skip">
